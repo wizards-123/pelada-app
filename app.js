@@ -1,12 +1,14 @@
 // ============================================================
-// PELADA APP - Supabase Frontend (app.js)
+// PELADA APP - Multi-Tenant (app.js)
 // ============================================================
 
 const SUPABASE_URL = 'https://ajtguipxovhsnxqxgheb.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqdGd1aXB4b3Zoc254cXhnaGViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NjUwMjcsImV4cCI6MjA5MTE0MTAyN30.PHCHmSwG2K4I2QzsJ4Jc_1qq_Ya9ryNtvFmFocH9ZCA';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-var currentUser = null, isAdm = false, peladaAtual = null, allPeladas = [], admName = 'Lior (ADM)', admPassword = '123';
+// --- State ---
+var grupoAtual = null; // { id, nome, admin_name, admin_password }
+var currentUser = null, isAdm = false, peladaAtual = null, allPeladas = [], admName = '', admPassword = '';
 var cachedJogadores = [], cachedPresentes = [];
 var realtimeChannel = null;
 
@@ -17,49 +19,121 @@ function $(id) { return document.getElementById(id); }
 function showSkeleton(id) { var e=$(id); if(e) e.innerHTML='<div class="skeleton"></div>'; }
 function showToast(m, err) { var e=$('toast'); e.textContent=m; e.className='toast'+(err?' error':''); setTimeout(function(){e.classList.add('show');},10); setTimeout(function(){e.classList.remove('show');},3000); }
 
-// Log async (fire and forget)
-function logAsync(u,a,d) { sb.from('logs').insert({usuario:u,acao:a,detalhes:d||''}).then(); }
+function logAsync(u,a,d) { sb.from('logs').insert({usuario:u,acao:a,detalhes:d||'',grupo_id:grupoAtual.id}).then(); }
 
 // --- Theme ---
-function applyTheme(t){if(t==='light')document.documentElement.classList.add('light');else document.documentElement.classList.remove('light');var i=t==='light'?'☀️':'🌙';var l=$('loginThemeBtn'),a=$('appThemeBtn');if(l)l.textContent=i;if(a)a.textContent=i;}
+function applyTheme(t){if(t==='light')document.documentElement.classList.add('light');else document.documentElement.classList.remove('light');var i=t==='light'?'☀️':'🌙';var btns=document.querySelectorAll('.theme-toggle-btn');btns.forEach(function(b){b.textContent=i;});}
 function toggleTheme(){var l=document.documentElement.classList.contains('light');var t=l?'dark':'light';try{localStorage.setItem('pelada-theme',t);}catch(e){}applyTheme(t);}
 (function(){try{applyTheme(localStorage.getItem('pelada-theme')||'dark');}catch(e){applyTheme('dark');}})();
 
 // ============================================================
-// INIT
+// TELA 0: SELEÇÃO DE GRUPO
 // ============================================================
 window.addEventListener('load', async function() {
-  // Load config
-  var { data: cfg } = await sb.from('config').select('*');
-  if (cfg) {
-    cfg.forEach(function(r) {
-      if (r.chave === 'adm_name') admName = r.valor;
-      if (r.chave === 'adm_password') admPassword = r.valor;
+  $('loadingOverlay').style.display = 'none';
+  showGrupoScreen();
+});
+
+async function showGrupoScreen() {
+  // Reset state
+  grupoAtual = null; currentUser = null; isAdm = false;
+  if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+
+  $('grupoScreen').style.display = 'flex';
+  $('loginScreen').style.display = 'none';
+  $('appScreen').style.display = 'none';
+  $('grupoError').style.display = 'none';
+  $('grupoLoading').style.display = 'block';
+  $('grupoList').innerHTML = '';
+
+  var { data: grupos } = await sb.from('grupos').select('*').order('criado_em', { ascending: false });
+  $('grupoLoading').style.display = 'none';
+
+  if (!grupos || grupos.length === 0) {
+    $('grupoList').innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada cadastrada ainda.<br>Crie a primeira abaixo!</div>';
+  } else {
+    var h = '';
+    grupos.forEach(function(g) {
+      h += '<button class="grupo-card" onclick="selecionarGrupo(\'' + g.id + '\')">' +
+        '<div class="grupo-card-nome">' + g.nome + '</div>' +
+        '<div class="grupo-card-id">' + g.id + '</div>' +
+        '</button>';
     });
+    $('grupoList').innerHTML = h;
+  }
+}
+
+function selecionarGrupo(gid) {
+  // Busca o grupo e vai pro login
+  sb.from('grupos').select('*').eq('id', gid).single().then(function(res) {
+    if (res.error || !res.data) { showGrupoError('Grupo não encontrado.'); return; }
+    enterGrupo(res.data);
+  });
+}
+
+function enterGrupo(grupo) {
+  grupoAtual = grupo;
+  admName = grupo.admin_name;
+  admPassword = grupo.admin_password;
+  initLogin();
+}
+
+function toggleCriarGrupo() {
+  var f = $('criarGrupoForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function criarGrupo() {
+  var nome = $('novoGrupoNome').value.trim();
+  var id = $('novoGrupoId').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+  var adm = $('novoGrupoAdm').value.trim();
+  var pwd = $('novoGrupoSenha').value.trim();
+
+  if (!nome || !id || !adm || !pwd) { showGrupoError('Preencha todos os campos.'); return; }
+  if (id.length < 3 || id.length > 20) { showGrupoError('O código deve ter entre 3 e 20 caracteres.'); return; }
+  if (pwd.length < 3) { showGrupoError('A senha deve ter pelo menos 3 caracteres.'); return; }
+
+  var admComTag = adm + ' (ADM)';
+  var { error } = await sb.from('grupos').insert({ id: id, nome: nome, admin_name: admComTag, admin_password: pwd });
+  if (error) {
+    if (error.message.includes('duplicate')) showGrupoError('Já existe um grupo com esse código.');
+    else showGrupoError('Erro: ' + error.message);
+    return;
   }
 
-  // Load jogadores
-  var { data: jogs } = await sb.from('jogadores').select('nome').order('nome');
+  // Inserir o admin como jogador do grupo
+  await sb.from('jogadores').insert({ nome: admComTag, grupo_id: id });
+
+  showToast('Grupo "' + nome + '" criado com sucesso!');
+  $('novoGrupoNome').value = ''; $('novoGrupoId').value = ''; $('novoGrupoAdm').value = ''; $('novoGrupoSenha').value = '';
+  $('criarGrupoForm').style.display = 'none';
+  showGrupoScreen();
+}
+
+function showGrupoError(m) { var e=$('grupoError'); e.textContent=m; e.style.display='block'; }
+
+// ============================================================
+// TELA 1: LOGIN (agora filtrado por grupo)
+// ============================================================
+async function initLogin() {
+  $('grupoScreen').style.display = 'none';
+  $('loginScreen').style.display = 'flex';
+  $('loginGrupoNome').textContent = grupoAtual.nome;
+
+  var { data: jogs } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
   cachedJogadores = jogs ? jogs.map(function(r){ return r.nome; }) : [];
 
-  // Load peladas (most recent first)
-  var { data: pels } = await sb.from('peladas').select('*').order('criado_em', { ascending: false });
+  var { data: pels } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
   allPeladas = pels || [];
   peladaAtual = allPeladas.length > 0 ? allPeladas[0] : null;
 
-  // Populate login dropdown
   var sel = $('loginSelect');
   sel.innerHTML = '<option value="">Selecione seu nome...</option>';
-  var sorted = sa(cachedJogadores);
-  sorted.forEach(function(n) {
-    var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o);
+  sa(cachedJogadores).forEach(function(n) {
+    var o = document.createElement('option'); o.value = n; o.textContent = dn(n); sel.appendChild(o);
   });
+}
 
-  $('loadingOverlay').style.display = 'none';
-  $('loginScreen').style.display = 'flex';
-});
-
-// --- Login ---
 function onLoginSelectChange() {
   var v = $('loginSelect').value;
   $('passwordGroup').style.display = (v === admName) ? 'block' : 'none';
@@ -80,6 +154,7 @@ function doLogin() {
 async function finalizeLogin(name, adm) {
   currentUser = name; isAdm = adm;
   $('headerUserName').textContent = dn(name);
+  $('headerGrupoName').textContent = grupoAtual.nome;
   $('loginScreen').style.display = 'none';
   $('appScreen').style.display = 'block';
   $('navAdm').style.display = adm ? 'flex' : 'none';
@@ -92,13 +167,18 @@ function doLogout() {
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   currentUser = null; isAdm = false;
   $('appScreen').style.display = 'none';
-  $('loginScreen').style.display = 'flex';
   $('admPassword').value = '';
   $('loginSelect').value = '';
   $('passwordGroup').style.display = 'none';
+  showGrupoScreen();
 }
 
 function showLoginError(m) { var e=$('loginError'); e.textContent=m; e.style.display='block'; }
+
+function voltarParaGrupos() {
+  $('loginScreen').style.display = 'none';
+  showGrupoScreen();
+}
 
 // --- Navigation ---
 function navigateTo(page) {
@@ -114,21 +194,20 @@ function navigateTo(page) {
 }
 
 // ============================================================
-// HOME
+// HOME (filtrado por grupo)
 // ============================================================
 async function loadHome() {
   showSkeleton('homeContent');
-  // Refresh peladas
-  var { data: pels } = await sb.from('peladas').select('*').order('criado_em', { ascending: false });
+  var { data: pels } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
   allPeladas = pels || [];
   peladaAtual = allPeladas.length > 0 ? allPeladas[0] : null;
 
   if (!peladaAtual) { $('homeContent').innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada agendada ainda.</div>'; return; }
 
-  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id);
+  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   cachedPresentes = pres ? pres.map(function(r){ return r.jogador; }) : [];
 
-  var { data: vcheck } = await sb.from('votos').select('id').eq('pelada_id', peladaAtual.id).eq('votante', currentUser).limit(1);
+  var { data: vcheck } = await sb.from('votos').select('id').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('votante', currentUser).limit(1);
   var jaVotou = vcheck && vcheck.length > 0;
 
   renderHome(cachedPresentes, jaVotou);
@@ -168,7 +247,7 @@ function renderHome(presentes, jaVotou) {
 }
 
 // ============================================================
-// VOTAÇÃO
+// VOTAÇÃO (filtrado por grupo)
 // ============================================================
 async function loadVotar() {
   var el = $('votarContent');
@@ -176,10 +255,10 @@ async function loadVotar() {
   if (!peladaAtual.votacao_aberta) { el.innerHTML = '<div class="empty-state"><span class="emoji">🔒</span>A votação ainda não está aberta para esta pelada.</div>'; return; }
 
   showSkeleton('votarContent');
-  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id);
+  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   var presentes = pres ? pres.map(function(r){ return r.jogador; }) : [];
 
-  var { data: oldVotes } = await sb.from('votos').select('*').eq('pelada_id', peladaAtual.id).eq('votante', currentUser);
+  var { data: oldVotes } = await sb.from('votos').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('votante', currentUser);
   var votosAnteriores = null;
   if (oldVotes && oldVotes.length > 0) {
     votosAnteriores = { goleiro: '', mvp: '', decepcao: '', revelacao: '', selecao: [] };
@@ -229,17 +308,15 @@ async function submitVotos() {
   if (!g || !m || !d || !r) { showToast('Preencha todas as categorias!', true); return; }
   if (selecaoSelecionados.length !== 4) { showToast('Selecione exatamente 4 jogadores para a Seleção!', true); return; }
 
-  // Delete old votes
-  await sb.from('votos').delete().eq('pelada_id', peladaAtual.id).eq('votante', currentUser);
+  await sb.from('votos').delete().eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('votante', currentUser);
 
-  // Insert new
   var rows = [
-    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Goleiro', votado: g },
-    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'MVP', votado: m },
-    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Decepcao', votado: d },
-    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Revelacao', votado: r }
+    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Goleiro', votado: g, grupo_id: grupoAtual.id },
+    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'MVP', votado: m, grupo_id: grupoAtual.id },
+    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Decepcao', votado: d, grupo_id: grupoAtual.id },
+    { pelada_id: peladaAtual.id, votante: currentUser, premio: 'Revelacao', votado: r, grupo_id: grupoAtual.id }
   ];
-  selecaoSelecionados.forEach(function(s) { rows.push({ pelada_id: peladaAtual.id, votante: currentUser, premio: 'Selecao', votado: s }); });
+  selecaoSelecionados.forEach(function(s) { rows.push({ pelada_id: peladaAtual.id, votante: currentUser, premio: 'Selecao', votado: s, grupo_id: grupoAtual.id }); });
 
   var { error } = await sb.from('votos').insert(rows);
   if (error) { showToast('Erro ao votar: ' + error.message, true); return; }
@@ -249,10 +326,10 @@ async function submitVotos() {
 }
 
 // ============================================================
-// RESULTADOS
+// RESULTADOS (filtrado por grupo)
 // ============================================================
 function switchResultTab(t) {
-  document.querySelectorAll('#resultTabs .tab').forEach(function(tb, i) { tb.classList.remove('active'); });
+  document.querySelectorAll('#resultTabs .tab').forEach(function(tb){ tb.classList.remove('active'); });
   ['resultadosSemana','resultadosGeral','resultadosArtilharia','resultadosVitorias'].forEach(function(id){ $(id).style.display='none'; });
   if(t==='semana'){document.querySelectorAll('#resultTabs .tab')[0].classList.add('active');$('resultadosSemana').style.display='block';}
   else if(t==='geral'){document.querySelectorAll('#resultTabs .tab')[1].classList.add('active');$('resultadosGeral').style.display='block';}
@@ -263,27 +340,23 @@ function switchResultTab(t) {
 async function loadResultados() {
   showSkeleton('resultadosSemana');
 
-  // Semana
   if (peladaAtual) {
-    var { data: vs } = await sb.from('votos').select('*').eq('pelada_id', peladaAtual.id);
+    var { data: vs } = await sb.from('votos').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
     var dataF = peladaAtual.data; try { dataF = new Date(peladaAtual.data+'T12:00:00').toLocaleDateString('pt-BR'); } catch(e){}
     renderResultados(buildRanking(vs || []), 'resultadosSemana', peladaAtual.id + ' (' + dataF + ')');
     if (isAdm) { $('votosDetalhados').style.display = 'block'; renderVotosDetalhados(vs || []); }
   } else { $('resultadosSemana').innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada disponível.</div>'; }
 
-  // Geral
-  var { data: allV } = await sb.from('votos').select('*');
+  var { data: allV } = await sb.from('votos').select('*').eq('grupo_id', grupoAtual.id);
   renderResultados(buildRanking(allV || []), 'resultadosGeral', 'Ranking Geral (Todas as Peladas)');
 
-  // Artilharia
-  var { data: allG } = await sb.from('gols').select('*').eq('gol_contra', false);
+  var { data: allG } = await sb.from('gols').select('*').eq('grupo_id', grupoAtual.id).eq('gol_contra', false);
   var artMap = {};
   (allG || []).forEach(function(g) { artMap[g.jogador] = (artMap[g.jogador] || 0) + 1; });
   var art = Object.keys(artMap).map(function(n){ return { nome: n, gols: artMap[n] }; }).sort(function(a,b){ return b.gols - a.gols; });
   renderRankingSimples(art, 'resultadosArtilharia', '⚽ Artilharia Geral', 'gols');
 
-  // Vitórias
-  var { data: allP } = await sb.from('partidas').select('*').eq('status', 'Finalizada').neq('vencedor', 'Empate').neq('vencedor', '');
+  var { data: allP } = await sb.from('partidas').select('*').eq('grupo_id', grupoAtual.id).eq('status', 'Finalizada').neq('vencedor', 'Empate').neq('vencedor', '');
   var vitMap = {};
   (allP || []).forEach(function(p) {
     var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
@@ -332,7 +405,7 @@ function renderVotosDetalhados(votos) {
 }
 
 // ============================================================
-// ADM
+// ADM (filtrado por grupo)
 // ============================================================
 function loadAdm() {
   if (!isAdm) return;
@@ -351,7 +424,7 @@ function switchAdmTab(t) {
 
 async function loadAdmPelada() {
   showSkeleton('admTabPelada');
-  var { data: pels } = await sb.from('peladas').select('*').order('criado_em', { ascending: false });
+  var { data: pels } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
   allPeladas = pels || []; peladaAtual = allPeladas[0] || null;
 
   var po = ''; allPeladas.forEach(function(p, i) {
@@ -369,7 +442,7 @@ async function loadAdmPeladaDetails(peladaId) {
   var pelada = allPeladas.find(function(p){ return p.id === peladaId; });
   if (!pelada) return;
 
-  var { data: votantes } = await sb.from('votos').select('votante').eq('pelada_id', peladaId);
+  var { data: votantes } = await sb.from('votos').select('votante').eq('pelada_id', peladaId).eq('grupo_id', grupoAtual.id);
   var uniq = {}; (votantes||[]).forEach(function(v){ uniq[v.votante]=true; }); var qjv = Object.keys(uniq);
 
   var ae = $('admPeladaActions');
@@ -380,10 +453,9 @@ async function loadAdmPeladaDetails(peladaId) {
   if (qjv.length > 0) h += '<div class="text-muted" style="font-size:12px;">Já votaram (' + qjv.length + '): ' + sa(qjv).map(dn).join(', ') + '</div>';
   if (ae) ae.innerHTML = h;
 
-  // Presença
-  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaId);
+  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaId).eq('grupo_id', grupoAtual.id);
   var presentesList = (pres||[]).map(function(r){ return r.jogador; });
-  var { data: jogs } = await sb.from('jogadores').select('nome').order('nome');
+  var { data: jogs } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
   var jogList = (jogs||[]).map(function(r){ return r.nome; });
 
   var le = $('admPresencaList');
@@ -400,19 +472,19 @@ function onAdmPeladaSelectChange() { loadAdmPeladaDetails($('admPeladaSelect').v
 async function criarNovaPelada() {
   var data = $('novaPeladaData').value;
   if (!data) { showToast('Selecione uma data!', true); return; }
-  var { data: nid } = await sb.rpc('next_pelada_id');
-  var { error } = await sb.from('peladas').insert({ id: nid, data: data, status: 'Agendada', votacao_aberta: false });
+  var { data: nid } = await sb.rpc('next_pelada_id_grupo', { p_grupo_id: grupoAtual.id });
+  var { error } = await sb.from('peladas').insert({ id: nid, data: data, status: 'Agendada', votacao_aberta: false, grupo_id: grupoAtual.id });
   if (error) { showToast('Erro: ' + error.message, true); return; }
   showToast('Pelada criada: ' + nid); logAsync(currentUser, 'CRIAR_PELADA', nid + ' em ' + data); loadAdmPelada();
 }
 
 async function abrirVotacao(pid) {
-  await sb.from('peladas').update({ status: 'Realizada', votacao_aberta: true }).eq('id', pid);
+  await sb.from('peladas').update({ status: 'Realizada', votacao_aberta: true }).eq('id', pid).eq('grupo_id', grupoAtual.id);
   showToast('Votação aberta!'); logAsync(currentUser, 'ABRIR_VOTACAO', pid); loadAdmPelada();
 }
 
 async function fecharVotacao(pid) {
-  await sb.from('peladas').update({ status: 'Encerrada', votacao_aberta: false }).eq('id', pid);
+  await sb.from('peladas').update({ status: 'Encerrada', votacao_aberta: false }).eq('id', pid).eq('grupo_id', grupoAtual.id);
   showToast('Votação fechada!'); logAsync(currentUser, 'FECHAR_VOTACAO', pid); loadAdmPelada();
 }
 
@@ -420,42 +492,42 @@ async function salvarPresenca() {
   var pid = $('admPeladaSelect').value;
   var cbs = document.querySelectorAll('#admPresencaList input[type="checkbox"]');
   var pr = []; cbs.forEach(function(c){ if(c.checked) pr.push(c.value); });
-  await sb.from('presenca').delete().eq('pelada_id', pid);
-  if (pr.length > 0) { var rows = pr.map(function(j){ return { pelada_id: pid, jogador: j }; }); await sb.from('presenca').insert(rows); }
+  await sb.from('presenca').delete().eq('pelada_id', pid).eq('grupo_id', grupoAtual.id);
+  if (pr.length > 0) { var rows = pr.map(function(j){ return { pelada_id: pid, jogador: j, grupo_id: grupoAtual.id }; }); await sb.from('presenca').insert(rows); }
   showToast(pr.length + ' jogadores marcados.'); logAsync(currentUser, 'DEFINIR_PRESENCA', pid + ': ' + pr.join(', '));
 }
 
 // ADM: Jogadores
 async function loadAdmJogadores() {
   showSkeleton('admTabJogadores');
-  var { data: jogs } = await sb.from('jogadores').select('nome').order('nome');
+  var { data: jogs } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
   var jogList = (jogs||[]).map(function(r){ return r.nome; });
   cachedJogadores = jogList;
   var jo = sa(jogList);
   var h = '<div class="card"><div class="card-title">➕ Adicionar Jogador</div><div class="input-row"><input type="text" id="novoJogadorNome" placeholder="Nome do jogador"><button class="btn btn-primary" onclick="adicionarJogador()">Adicionar</button></div></div>';
   h += '<div class="card"><div class="card-title">📋 Jogadores Cadastrados (' + jogList.length + ')</div>';
   jo.forEach(function(n) { h += '<div class="flex-between" style="padding:8px 0;border-bottom:1px solid rgba(36,48,73,0.3);"><span style="font-size:14px;">' + dn(n) + '</span>';
-    if (n !== admName) h += '<button class="btn-logout" style="color:var(--red);border-color:var(--red);font-size:11px;" onclick="removerJogador(\'' + n + '\')">Remover</button>'; h += '</div>'; });
+    if (n !== admName) h += '<button class="btn-logout" style="color:var(--red);border-color:var(--red);font-size:11px;" onclick="removerJogador(\'' + n.replace(/'/g, "\\'") + '\')">Remover</button>'; h += '</div>'; });
   h += '</div>'; $('admTabJogadores').innerHTML = h;
 }
 
 async function adicionarJogador() {
   var n = $('novoJogadorNome').value.trim(); if (!n) { showToast('Digite o nome!', true); return; }
-  var { error } = await sb.from('jogadores').insert({ nome: n });
-  if (error) { showToast(error.message.includes('duplicate') ? 'Jogador já existe.' : error.message, true); return; }
+  var { error } = await sb.from('jogadores').insert({ nome: n, grupo_id: grupoAtual.id });
+  if (error) { showToast(error.message.includes('duplicate') ? 'Jogador já existe neste grupo.' : error.message, true); return; }
   showToast('Jogador adicionado.'); logAsync(currentUser, 'ADD_JOGADOR', n); loadAdmJogadores();
 }
 
 async function removerJogador(n) {
   if (!confirm('Remover ' + n + '?')) return;
-  await sb.from('jogadores').delete().eq('nome', n);
+  await sb.from('jogadores').delete().eq('nome', n).eq('grupo_id', grupoAtual.id);
   showToast('Jogador removido.'); logAsync(currentUser, 'REMOVER_JOGADOR', n); loadAdmJogadores();
 }
 
 // ADM: Logs
 async function loadAdmLogs() {
   showSkeleton('admTabLogs');
-  var { data: logs } = await sb.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
+  var { data: logs } = await sb.from('logs').select('*').eq('grupo_id', grupoAtual.id).order('timestamp', { ascending: false }).limit(100);
   if (!logs || logs.length === 0) { $('admTabLogs').innerHTML = '<div class="empty-state"><span class="emoji">📋</span>Nenhum log registrado.</div>'; return; }
   var h = '<div class="card"><div class="card-title">📋 Logs do Sistema</div><div style="overflow-x:auto;"><table class="log-table"><tr><th>Usuário</th><th>Ação</th><th>Detalhes</th><th>Data/Hora</th></tr>';
   logs.forEach(function(l) { var ts = l.timestamp ? new Date(l.timestamp).toLocaleString('pt-BR') : '';
@@ -464,7 +536,7 @@ async function loadAdmLogs() {
 }
 
 // ============================================================
-// AO VIVO (com Realtime!)
+// AO VIVO (filtrado por grupo)
 // ============================================================
 var aoVivoPresentes = [], teamPicks = {};
 
@@ -473,13 +545,11 @@ async function loadAoVivo() {
   if (!peladaAtual) { el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada disponível.</div>'; return; }
   showSkeleton('aoVivoContent');
 
-  // Refresh status da pelada (pode ter sido encerrada)
-  var { data: pelRef } = await sb.from('peladas').select('*').eq('id', peladaAtual.id).single();
+  var { data: pelRef } = await sb.from('peladas').select('*').eq('id', peladaAtual.id).eq('grupo_id', grupoAtual.id).single();
   if (pelRef) peladaAtual = pelRef;
 
   if (peladaAtual.status === 'Realizada' || peladaAtual.status === 'Encerrada') {
-    // Mostra resumo das partidas finalizadas
-    var { data: parts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).order('numero');
+    var { data: parts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).order('numero');
     var todasPartidas = parts || [];
     var finalizadas = todasPartidas.filter(function(p){ return p.status === 'Finalizada'; });
     if (finalizadas.length > 0) {
@@ -497,16 +567,16 @@ async function loadAoVivo() {
     return;
   }
 
-  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id);
+  var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   aoVivoPresentes = (pres||[]).map(function(r){ return r.jogador; });
 
-  var { data: parts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).order('numero');
+  var { data: parts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).order('numero');
   var todasPartidas = parts || [];
 
   var ativa = todasPartidas.find(function(p){ return p.status === 'EmAndamento'; }) || null;
 
   if (ativa) {
-    var { data: gols } = await sb.from('gols').select('*').eq('partida_id', ativa.partida_id).order('timestamp');
+    var { data: gols } = await sb.from('gols').select('*').eq('partida_id', ativa.partida_id).eq('grupo_id', grupoAtual.id).order('timestamp');
     renderPartidaAtiva(ativa, gols || [], todasPartidas);
     setupRealtime(ativa.partida_id);
   } else {
@@ -552,8 +622,8 @@ function pickPlayer(c) {
 async function iniciarPartida(num) {
   var tA=[], tB=[]; for(var k in teamPicks){if(teamPicks[k]==='A')tA.push(k);if(teamPicks[k]==='B')tB.push(k);}
   if(tA.length!==5||tB.length!==5){showToast('Selecione exatamente 5 jogadores por time!',true);return;}
-  var pid = peladaAtual.id + '_M' + String(num).padStart(2, '0');
-  var { error } = await sb.from('partidas').insert({ partida_id: pid, pelada_id: peladaAtual.id, numero: num, time_a: tA, time_b: tB, placar_a: 0, placar_b: 0, vencedor: '', status: 'EmAndamento' });
+  var pid = grupoAtual.id + '_' + peladaAtual.id + '_M' + String(num).padStart(2, '0');
+  var { error } = await sb.from('partidas').insert({ partida_id: pid, pelada_id: peladaAtual.id, numero: num, time_a: tA, time_b: tB, placar_a: 0, placar_b: 0, vencedor: '', status: 'EmAndamento', grupo_id: grupoAtual.id });
   if (error) { showToast('Erro: ' + error.message, true); return; }
   showToast('Partida iniciada!'); logAsync(currentUser, 'INICIAR_PARTIDA', pid); loadAoVivo();
 }
@@ -578,33 +648,32 @@ function renderPartidaAtiva(part, gols, tp) {
 }
 
 async function marcarGol(partidaId, jogador, time, gc) {
-  var { data: gid } = await sb.rpc('next_gol_id');
-  await sb.from('gols').insert({ gol_id: gid, partida_id: partidaId, pelada_id: peladaAtual.id, jogador: jogador, time: time, gol_contra: gc });
+  var { data: gid } = await sb.rpc('next_gol_id_grupo', { p_grupo_id: grupoAtual.id });
+  await sb.from('gols').insert({ gol_id: gid, partida_id: partidaId, pelada_id: peladaAtual.id, jogador: jogador, time: time, gol_contra: gc, grupo_id: grupoAtual.id });
   await sb.rpc('recalcular_placar', { p_partida_id: partidaId });
   showToast(gc ? 'Gol contra registrado!' : 'Gol de ' + dn(jogador) + '!');
   logAsync(currentUser, 'GOL', jogador + ' (Time ' + time + ')' + (gc ? ' [CONTRA]' : '') + ' em ' + partidaId);
-  // Realtime will auto-refresh, but trigger manual refresh for the scorer's device
   loadAoVivo();
 }
 
 async function removerGolConfirm(golId, partidaId) {
   if (!confirm('Remover este gol?')) return;
-  await sb.from('gols').delete().eq('gol_id', golId);
+  await sb.from('gols').delete().eq('gol_id', golId).eq('grupo_id', grupoAtual.id);
   await sb.rpc('recalcular_placar', { p_partida_id: partidaId });
   showToast('Gol removido.'); logAsync(currentUser, 'REMOVER_GOL', golId); loadAoVivo();
 }
 
 async function confirmarFinalizarPartida(pid) {
   if (!confirm('Finalizar esta partida?')) return;
-  var { data: p } = await sb.from('partidas').select('placar_a, placar_b').eq('partida_id', pid).single();
+  var { data: p } = await sb.from('partidas').select('placar_a, placar_b').eq('partida_id', pid).eq('grupo_id', grupoAtual.id).single();
   var v = p.placar_a > p.placar_b ? 'A' : (p.placar_b > p.placar_a ? 'B' : 'Empate');
-  await sb.from('partidas').update({ vencedor: v, status: 'Finalizada' }).eq('partida_id', pid);
+  await sb.from('partidas').update({ vencedor: v, status: 'Finalizada' }).eq('partida_id', pid).eq('grupo_id', grupoAtual.id);
   var msg = v === 'Empate' ? 'Empate! ' + p.placar_a + ' x ' + p.placar_b : (v === 'A' ? '🔵 Time A venceu!' : '🟠 Time B venceu!') + ' ' + p.placar_a + ' x ' + p.placar_b;
   showToast(msg); logAsync(currentUser, 'FINALIZAR_PARTIDA', pid + ' ' + p.placar_a + 'x' + p.placar_b); loadAoVivo();
 }
 
 async function confirmarEncerrarPelada() {
   if (!confirm('Encerrar a pelada de hoje? Isso marca a pelada como Realizada.')) return;
-  await sb.from('peladas').update({ status: 'Realizada' }).eq('id', peladaAtual.id);
+  await sb.from('peladas').update({ status: 'Realizada' }).eq('id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   showToast('Pelada encerrada!'); logAsync(currentUser, 'ENCERRAR_PELADA', peladaAtual.id); loadHome(); navigateTo('Home');
 }
