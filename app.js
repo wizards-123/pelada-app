@@ -473,6 +473,30 @@ async function loadAoVivo() {
   if (!peladaAtual) { el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada disponível.</div>'; return; }
   showSkeleton('aoVivoContent');
 
+  // Refresh status da pelada (pode ter sido encerrada)
+  var { data: pelRef } = await sb.from('peladas').select('*').eq('id', peladaAtual.id).single();
+  if (pelRef) peladaAtual = pelRef;
+
+  if (peladaAtual.status === 'Realizada' || peladaAtual.status === 'Encerrada') {
+    // Mostra resumo das partidas finalizadas
+    var { data: parts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).order('numero');
+    var todasPartidas = parts || [];
+    var finalizadas = todasPartidas.filter(function(p){ return p.status === 'Finalizada'; });
+    if (finalizadas.length > 0) {
+      var rh = '<div class="card"><div class="card-title">📋 Partidas de Hoje</div>';
+      finalizadas.forEach(function(p) {
+        var vl = p.vencedor === 'A' ? '🔵 Time A' : (p.vencedor === 'B' ? '🟠 Time B' : '🤝 Empate');
+        rh += '<div class="flex-between" style="padding:8px 0;border-bottom:1px solid rgba(36,48,73,0.3);font-size:13px;"><span>Partida ' + p.numero + '</span><span style="font-weight:600;">' + p.placar_a + ' x ' + p.placar_b + '</span><span class="text-muted">' + vl + '</span></div>';
+      });
+      rh += '</div>';
+      el.innerHTML = rh + '<div class="empty-state"><span class="emoji">✅</span>Pelada encerrada.</div>';
+    } else {
+      el.innerHTML = '<div class="empty-state"><span class="emoji">✅</span>Pelada encerrada.</div>';
+    }
+    if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+    return;
+  }
+
   var { data: pres } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id);
   aoVivoPresentes = (pres||[]).map(function(r){ return r.jogador; });
 
