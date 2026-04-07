@@ -36,7 +36,7 @@ window.addEventListener('load', async function() {
 
 async function showGrupoScreen() {
   // Reset state
-  grupoAtual = null; currentUser = null; isAdm = false;
+  grupoAtual = null; currentUser = null; isAdm = false; grupoSelecionadoId = null;
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
 
   $('grupoScreen').style.display = 'flex';
@@ -45,8 +45,12 @@ async function showGrupoScreen() {
   $('grupoError').style.display = 'none';
   $('grupoLoading').style.display = 'block';
   $('grupoList').innerHTML = '';
+  $('grupoList').style.display = 'flex';
+  $('grupoDivider').style.display = 'block';
+  $('grupoSenhaSection').style.display = 'none';
+  $('criarGrupoForm').style.display = 'none';
 
-  var { data: grupos } = await sb.from('grupos').select('*').order('criado_em', { ascending: false });
+  var { data: grupos } = await sb.from('grupos').select('id, nome, criado_em').order('criado_em', { ascending: false });
   $('grupoLoading').style.display = 'none';
 
   if (!grupos || grupos.length === 0) {
@@ -63,18 +67,46 @@ async function showGrupoScreen() {
   }
 }
 
+var grupoSelecionadoId = null;
+
 function selecionarGrupo(gid) {
-  // Busca o grupo e vai pro login
-  sb.from('grupos').select('*').eq('id', gid).single().then(function(res) {
-    if (res.error || !res.data) { showGrupoError('Grupo não encontrado.'); return; }
-    enterGrupo(res.data);
+  grupoSelecionadoId = gid;
+  $('grupoError').style.display = 'none';
+  $('grupoSenhaInput').value = '';
+  // Mostrar o campo de senha e esconder a lista
+  $('grupoList').style.display = 'none';
+  $('grupoDivider').style.display = 'none';
+  $('criarGrupoForm').style.display = 'none';
+  $('grupoSenhaSection').style.display = 'block';
+  // Buscar nome do grupo para exibir
+  sb.from('grupos').select('id, nome').eq('id', gid).single().then(function(res) {
+    if (res.data) $('grupoSenhaNome').textContent = res.data.nome;
   });
+  setTimeout(function(){ $('grupoSenhaInput').focus(); }, 100);
 }
 
-function enterGrupo(grupo) {
+function voltarParaListaGrupos() {
+  grupoSelecionadoId = null;
+  $('grupoSenhaSection').style.display = 'none';
+  $('grupoList').style.display = 'flex';
+  $('grupoDivider').style.display = 'block';
+  $('grupoError').style.display = 'none';
+}
+
+async function validarSenhaGrupo() {
+  var senha = $('grupoSenhaInput').value.trim();
+  if (!senha) { showGrupoError('Digite a senha.'); return; }
+
+  var { data: grupo, error } = await sb.from('grupos').select('*').eq('id', grupoSelecionadoId).single();
+  if (error || !grupo) { showGrupoError('Grupo não encontrado.'); return; }
+
+  if (senha !== grupo.senha_acesso) { showGrupoError('Senha incorreta.'); return; }
+
+  // Senha correta, entrar no grupo
   grupoAtual = grupo;
   admName = grupo.admin_name;
   admPassword = grupo.admin_password;
+  $('grupoSenhaSection').style.display = 'none';
   initLogin();
 }
 
@@ -86,26 +118,27 @@ function toggleCriarGrupo() {
 async function criarGrupo() {
   var nome = $('novoGrupoNome').value.trim();
   var id = $('novoGrupoId').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+  var senhaAcesso = $('novoGrupoSenhaAcesso').value.trim();
   var adm = $('novoGrupoAdm').value.trim();
   var pwd = $('novoGrupoSenha').value.trim();
 
-  if (!nome || !id || !adm || !pwd) { showGrupoError('Preencha todos os campos.'); return; }
+  if (!nome || !id || !senhaAcesso || !adm || !pwd) { showGrupoError('Preencha todos os campos.'); return; }
   if (id.length < 3 || id.length > 20) { showGrupoError('O código deve ter entre 3 e 20 caracteres.'); return; }
-  if (pwd.length < 3) { showGrupoError('A senha deve ter pelo menos 3 caracteres.'); return; }
+  if (senhaAcesso.length < 3) { showGrupoError('A senha de acesso deve ter pelo menos 3 caracteres.'); return; }
+  if (pwd.length < 3) { showGrupoError('A senha do ADM deve ter pelo menos 3 caracteres.'); return; }
 
   var admComTag = adm + ' (ADM)';
-  var { error } = await sb.from('grupos').insert({ id: id, nome: nome, admin_name: admComTag, admin_password: pwd });
+  var { error } = await sb.from('grupos').insert({ id: id, nome: nome, admin_name: admComTag, admin_password: pwd, senha_acesso: senhaAcesso });
   if (error) {
     if (error.message.includes('duplicate')) showGrupoError('Já existe um grupo com esse código.');
     else showGrupoError('Erro: ' + error.message);
     return;
   }
 
-  // Inserir o admin como jogador do grupo
   await sb.from('jogadores').insert({ nome: admComTag, grupo_id: id });
 
   showToast('Grupo "' + nome + '" criado com sucesso!');
-  $('novoGrupoNome').value = ''; $('novoGrupoId').value = ''; $('novoGrupoAdm').value = ''; $('novoGrupoSenha').value = '';
+  $('novoGrupoNome').value = ''; $('novoGrupoId').value = ''; $('novoGrupoSenhaAcesso').value = ''; $('novoGrupoAdm').value = ''; $('novoGrupoSenha').value = '';
   $('criarGrupoForm').style.display = 'none';
   showGrupoScreen();
 }
