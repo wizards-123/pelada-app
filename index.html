@@ -117,14 +117,29 @@
   <div class="login-card">
     <div id="grupoLoading" style="text-align:center;padding:20px;"><div class="skeleton" style="height:60px;"></div></div>
     <div id="grupoList" style="display:flex;flex-direction:column;gap:10px;"></div>
-    <div class="grupo-divider">
+
+    <!-- Seção de senha do grupo (aparece ao clicar num grupo) -->
+    <div id="grupoSenhaSection" style="display:none;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:15px;font-weight:600;color:var(--text);" id="grupoSenhaNome"></div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px;">Digite a senha para entrar</div>
+      </div>
+      <input type="password" id="grupoSenhaInput" placeholder="Senha da pelada" class="grupo-form-input" onkeydown="if(event.key==='Enter')validarSenhaGrupo()">
+      <button class="btn btn-primary" onclick="validarSenhaGrupo()" style="margin-bottom:10px;">Entrar</button>
+      <button class="btn btn-secondary" onclick="voltarParaListaGrupos()" style="font-size:13px;">← Voltar</button>
+    </div>
+
+    <div class="grupo-divider" id="grupoDivider">
       <button class="btn btn-secondary" onclick="toggleCriarGrupo()" style="font-size:13px;">➕ Criar nova pelada</button>
     </div>
     <div id="criarGrupoForm" style="display:none;margin-top:16px;">
       <input type="text" id="novoGrupoNome" placeholder="Nome da pelada (ex: Pelada de Quinta)" class="grupo-form-input">
       <input type="text" id="novoGrupoId" placeholder="Código único (ex: QUINTA, LEBLON)" class="grupo-form-input" style="text-transform:uppercase;">
+      <input type="password" id="novoGrupoSenhaAcesso" placeholder="Senha de acesso da pelada" class="grupo-form-input">
+      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Todos os jogadores usarão esta senha para entrar</div>
       <input type="text" id="novoGrupoAdm" placeholder="Nome do administrador" class="grupo-form-input">
       <input type="password" id="novoGrupoSenha" placeholder="Senha do administrador" class="grupo-form-input">
+      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Somente o ADM usará esta senha</div>
       <button class="btn btn-primary" onclick="criarGrupo()">Criar Pelada</button>
     </div>
     <div id="grupoError" class="login-error"></div>
