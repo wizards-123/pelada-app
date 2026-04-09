@@ -46,10 +46,8 @@ function renderResultadosShell() {
   ddHtml += '<button class="pelada-filter-action-btn" onclick="peladaFilterSelectNone()">Nenhuma</button>';
   ddHtml += '</div>';
   resultAllPeladas.forEach(function(p) {
-    var df = p.data;
-    try { df = new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR'); } catch(e) {}
     var checked = resultPeladasSelecionadas.indexOf(p.id) > -1 ? ' checked' : '';
-    ddHtml += '<label class="pelada-filter-item"><input type="checkbox" value="' + p.id + '"' + checked + ' onchange="onPeladaFilterChange(this)"><span>' + p.id + ' (' + df + ')</span></label>';
+    ddHtml += '<label class="pelada-filter-item"><input type="checkbox" value="' + p.id + '"' + checked + ' onchange="onPeladaFilterChange(this)"><span>' + peladaLabelComData(p) + '</span></label>';
   });
   ddHtml += '</div></div>';
 
