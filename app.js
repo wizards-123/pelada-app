@@ -1,5 +1,5 @@
 // ============================================================
-// PELADA APP - Multi-Tenant (app.js)
+// PELADA APP - Multi-Tenant + Multi-Admin (app.js)
 // ============================================================
 
 const SUPABASE_URL = 'https://ajtguipxovhsnxqxgheb.supabase.co';
@@ -7,13 +7,17 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- State ---
-var grupoAtual = null; // { id, nome, admin_name, admin_password }
-var currentUser = null, isAdm = false, peladaAtual = null, allPeladas = [], admName = '', admPassword = '';
+var grupoAtual = null;
+var currentUser = null, isAdm = false, isSuperAdmin = false;
+var peladaAtual = null, allPeladas = [];
+var admName = '', admPassword = '';
+var admNames = []; // array com nomes de todos os ADMs do grupo
+var superAdminName = '';
 var cachedJogadores = [], cachedPresentes = [];
 var realtimeChannel = null;
 
 // --- Helpers ---
-function dn(n) { return n === admName ? admName.replace(' (ADM)', '') : n; }
+function dn(n) { if (!n) return ''; if (admNames.indexOf(n) > -1) return n.replace(' (ADM)', ''); return n; }
 function sa(a) { return a.slice().sort(function(x,y){ return x.localeCompare(y); }); }
 function $(id) { return document.getElementById(id); }
 function showSkeleton(id) { var e=$(id); if(e) e.innerHTML='<div class="skeleton"></div>'; }
@@ -35,8 +39,8 @@ window.addEventListener('load', async function() {
 });
 
 async function showGrupoScreen() {
-  // Reset state
-  grupoAtual = null; currentUser = null; isAdm = false; grupoSelecionadoId = null;
+  grupoAtual = null; currentUser = null; isAdm = false; isSuperAdmin = false; grupoSelecionadoId = null;
+  admNames = []; superAdminName = '';
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
 
   $('grupoScreen').style.display = 'flex';
@@ -73,12 +77,10 @@ function selecionarGrupo(gid) {
   grupoSelecionadoId = gid;
   $('grupoError').style.display = 'none';
   $('grupoSenhaInput').value = '';
-  // Mostrar o campo de senha e esconder a lista
   $('grupoList').style.display = 'none';
   $('grupoDivider').style.display = 'none';
   $('criarGrupoForm').style.display = 'none';
   $('grupoSenhaSection').style.display = 'block';
-  // Buscar nome do grupo para exibir
   sb.from('grupos').select('id, nome').eq('id', gid).single().then(function(res) {
     if (res.data) $('grupoSenhaNome').textContent = res.data.nome;
   });
@@ -102,10 +104,24 @@ async function validarSenhaGrupo() {
 
   if (senha !== grupo.senha_acesso) { showGrupoError('Senha incorreta.'); return; }
 
-  // Senha correta, entrar no grupo
   grupoAtual = grupo;
   admName = grupo.admin_name;
   admPassword = grupo.admin_password;
+  superAdminName = grupo.admin_name;
+
+  // Carregar lista de admins do grupo
+  var { data: adminsData } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id);
+  if (adminsData && adminsData.length > 0) {
+    admNames = adminsData.map(function(a) { return a.nome; });
+    // Encontra o super admin
+    var superEntry = adminsData.find(function(a) { return a.tipo === 'Super'; });
+    if (superEntry) superAdminName = superEntry.nome;
+  } else {
+    // Fallback: se a tabela admins não foi populada, usa o admin_name do grupo
+    admNames = [grupo.admin_name];
+    superAdminName = grupo.admin_name;
+  }
+
   $('grupoSenhaSection').style.display = 'none';
   initLogin();
 }
@@ -135,7 +151,11 @@ async function criarGrupo() {
     return;
   }
 
+  // Inserir jogador
   await sb.from('jogadores').insert({ nome: admComTag, grupo_id: id });
+
+  // Inserir na tabela admins como Super
+  await sb.from('admins').insert({ grupo_id: id, nome: admComTag, senha: pwd, tipo: 'Super' });
 
   showToast('Grupo "' + nome + '" criado com sucesso!');
   $('novoGrupoNome').value = ''; $('novoGrupoId').value = ''; $('novoGrupoSenhaAcesso').value = ''; $('novoGrupoAdm').value = ''; $('novoGrupoSenha').value = '';
@@ -146,7 +166,7 @@ async function criarGrupo() {
 function showGrupoError(m) { var e=$('grupoError'); e.textContent=m; e.style.display='block'; }
 
 // ============================================================
-// TELA 1: LOGIN (agora filtrado por grupo)
+// TELA 1: LOGIN (filtrado por grupo, múltiplos ADMs)
 // ============================================================
 async function initLogin() {
   $('grupoScreen').style.display = 'none';
@@ -169,23 +189,34 @@ async function initLogin() {
 
 function onLoginSelectChange() {
   var v = $('loginSelect').value;
-  $('passwordGroup').style.display = (v === admName) ? 'block' : 'none';
+  // Mostra senha se for qualquer ADM do grupo
+  var isAdmUser = admNames.indexOf(v) > -1;
+  $('passwordGroup').style.display = isAdmUser ? 'block' : 'none';
   $('loginError').style.display = 'none';
 }
 
-function doLogin() {
+async function doLogin() {
   var v = $('loginSelect').value;
   if (!v) { showLoginError('Selecione seu nome.'); return; }
-  if (v === admName) {
-    if ($('admPassword').value !== admPassword) { showLoginError('Senha incorreta.'); return; }
-    finalizeLogin(v, true);
+
+  var isAdmUser = admNames.indexOf(v) > -1;
+
+  if (isAdmUser) {
+    var pwd = $('admPassword').value;
+    // Verificar senha contra tabela admins
+    var { data: admEntry } = await sb.from('admins').select('nome, senha, tipo').eq('grupo_id', grupoAtual.id).eq('nome', v).single();
+    if (!admEntry || admEntry.senha !== pwd) {
+      showLoginError('Senha incorreta.');
+      return;
+    }
+    finalizeLogin(v, true, admEntry.tipo === 'Super');
   } else {
-    finalizeLogin(v, false);
+    finalizeLogin(v, false, false);
   }
 }
 
-async function finalizeLogin(name, adm) {
-  currentUser = name; isAdm = adm;
+async function finalizeLogin(name, adm, superAdm) {
+  currentUser = name; isAdm = adm; isSuperAdmin = superAdm;
   $('headerUserName').textContent = dn(name);
   $('headerGrupoName').textContent = grupoAtual.nome;
   $('loginScreen').style.display = 'none';
@@ -198,7 +229,7 @@ async function finalizeLogin(name, adm) {
 function doLogout() {
   if (currentUser) logAsync(currentUser, 'LOGOUT', 'Saiu do app');
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
-  currentUser = null; isAdm = false;
+  currentUser = null; isAdm = false; isSuperAdmin = false;
   $('appScreen').style.display = 'none';
   $('admPassword').value = '';
   $('loginSelect').value = '';
@@ -227,7 +258,7 @@ function navigateTo(page) {
 }
 
 // ============================================================
-// HOME (filtrado por grupo)
+// HOME
 // ============================================================
 async function loadHome() {
   showSkeleton('homeContent');
@@ -280,7 +311,7 @@ function renderHome(presentes, jaVotou) {
 }
 
 // ============================================================
-// VOTAÇÃO (filtrado por grupo)
+// VOTAÇÃO
 // ============================================================
 async function loadVotar() {
   var el = $('votarContent');
@@ -359,7 +390,7 @@ async function submitVotos() {
 }
 
 // ============================================================
-// RESULTADOS (filtrado por grupo)
+// RESULTADOS
 // ============================================================
 function switchResultTab(t) {
   document.querySelectorAll('#resultTabs .tab').forEach(function(tb){ tb.classList.remove('active'); });
@@ -438,21 +469,31 @@ function renderVotosDetalhados(votos) {
 }
 
 // ============================================================
-// ADM (filtrado por grupo)
+// ADM (com sub-aba Admins para Super Admin)
 // ============================================================
 function loadAdm() {
   if (!isAdm) return;
-  $('admContent').innerHTML = '<div class="tabs" id="admTabs"><button class="tab active" onclick="switchAdmTab(\'pelada\')">Pelada</button><button class="tab" onclick="switchAdmTab(\'jogadores\')">Jogadores</button><button class="tab" onclick="switchAdmTab(\'logs\')">Logs</button></div>' +
-    '<div id="admTabPelada"></div><div id="admTabJogadores" style="display:none;"></div><div id="admTabLogs" style="display:none;"></div>';
+  var tabsHtml = '<div class="tabs" id="admTabs">' +
+    '<button class="tab active" onclick="switchAdmTab(\'pelada\')">Pelada</button>' +
+    '<button class="tab" onclick="switchAdmTab(\'jogadores\')">Jogadores</button>' +
+    '<button class="tab" onclick="switchAdmTab(\'logs\')">Logs</button>' +
+    (isSuperAdmin ? '<button class="tab" onclick="switchAdmTab(\'admins\')">Admins</button>' : '') +
+    '</div>';
+  $('admContent').innerHTML = tabsHtml +
+    '<div id="admTabPelada"></div><div id="admTabJogadores" style="display:none;"></div><div id="admTabLogs" style="display:none;"></div>' +
+    (isSuperAdmin ? '<div id="admTabAdmins" style="display:none;"></div>' : '');
   loadAdmPelada();
 }
 
 function switchAdmTab(t) {
   document.querySelectorAll('#admTabs .tab').forEach(function(tb){ tb.classList.remove('active'); });
   ['admTabPelada','admTabJogadores','admTabLogs'].forEach(function(id){ $(id).style.display='none'; });
+  var admTabEl = $('admTabAdmins'); if(admTabEl) admTabEl.style.display='none';
+
   if (t==='pelada') { document.querySelectorAll('#admTabs .tab')[0].classList.add('active'); $('admTabPelada').style.display='block'; loadAdmPelada(); }
   if (t==='jogadores') { document.querySelectorAll('#admTabs .tab')[1].classList.add('active'); $('admTabJogadores').style.display='block'; loadAdmJogadores(); }
   if (t==='logs') { document.querySelectorAll('#admTabs .tab')[2].classList.add('active'); $('admTabLogs').style.display='block'; loadAdmLogs(); }
+  if (t==='admins' && isSuperAdmin) { document.querySelectorAll('#admTabs .tab')[3].classList.add('active'); $('admTabAdmins').style.display='block'; loadAdmAdmins(); }
 }
 
 async function loadAdmPelada() {
@@ -539,8 +580,12 @@ async function loadAdmJogadores() {
   var jo = sa(jogList);
   var h = '<div class="card"><div class="card-title">➕ Adicionar Jogador</div><div class="input-row"><input type="text" id="novoJogadorNome" placeholder="Nome do jogador"><button class="btn btn-primary" onclick="adicionarJogador()">Adicionar</button></div></div>';
   h += '<div class="card"><div class="card-title">📋 Jogadores Cadastrados (' + jogList.length + ')</div>';
-  jo.forEach(function(n) { h += '<div class="flex-between" style="padding:8px 0;border-bottom:1px solid rgba(36,48,73,0.3);"><span style="font-size:14px;">' + dn(n) + '</span>';
-    if (n !== admName) h += '<button class="btn-logout" style="color:var(--red);border-color:var(--red);font-size:11px;" onclick="removerJogador(\'' + n.replace(/'/g, "\\'") + '\')">Remover</button>'; h += '</div>'; });
+  jo.forEach(function(n) {
+    var isAdmJog = admNames.indexOf(n) > -1;
+    h += '<div class="flex-between" style="padding:8px 0;border-bottom:1px solid rgba(36,48,73,0.3);"><span style="font-size:14px;">' + dn(n) + (isAdmJog ? ' <span class="badge badge-purple" style="font-size:9px;">ADM</span>' : '') + '</span>';
+    if (!isAdmJog) h += '<button class="btn-logout" style="color:var(--red);border-color:var(--red);font-size:11px;" onclick="removerJogador(\'' + n.replace(/'/g, "\\'") + '\')">Remover</button>';
+    h += '</div>';
+  });
   h += '</div>'; $('admTabJogadores').innerHTML = h;
 }
 
@@ -552,7 +597,9 @@ async function adicionarJogador() {
 }
 
 async function removerJogador(n) {
-  if (!confirm('Remover ' + n + '?')) return;
+  // Impede remoção de ADMs
+  if (admNames.indexOf(n) > -1) { showToast('Não é possível remover um ADM. Remova o status de ADM primeiro.', true); return; }
+  if (!confirm('Remover ' + dn(n) + '?')) return;
   await sb.from('jogadores').delete().eq('nome', n).eq('grupo_id', grupoAtual.id);
   showToast('Jogador removido.'); logAsync(currentUser, 'REMOVER_JOGADOR', n); loadAdmJogadores();
 }
@@ -569,7 +616,89 @@ async function loadAdmLogs() {
 }
 
 // ============================================================
-// AO VIVO (filtrado por grupo)
+// ADM: ADMINS (só Super Admin)
+// ============================================================
+async function loadAdmAdmins() {
+  if (!isSuperAdmin) return;
+  var el = $('admTabAdmins');
+  showSkeleton('admTabAdmins');
+
+  var { data: adminList } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id).order('tipo', { ascending: false });
+  adminList = adminList || [];
+
+  var { data: jogs } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
+  var jogList = (jogs||[]).map(function(r){ return r.nome; });
+
+  var admNomesSet = {};
+  adminList.forEach(function(a) { admNomesSet[a.nome] = true; });
+
+  var h = '<div class="card"><div class="card-title">👑 Adicionar Novo ADM</div>' +
+    '<div style="margin-bottom:8px;"><select class="vote-select" id="novoAdminNome"><option value="">Selecione um jogador...</option>';
+  sa(jogList).forEach(function(n) {
+    if (!admNomesSet[n]) h += '<option value="' + n + '">' + dn(n) + '</option>';
+  });
+  h += '</select></div>' +
+    '<div class="input-row"><input type="text" id="novoAdminSenha" placeholder="Senha para o novo ADM"><button class="btn btn-primary" onclick="addAdmin()">Adicionar ADM</button></div></div>';
+
+  h += '<div class="card"><div class="card-title">🔐 ADMs Cadastrados (' + adminList.length + ')</div>';
+  adminList.forEach(function(a) {
+    var tipoLabel = a.tipo === 'Super' ? '👑 Super Admin' : '🛡️ Admin';
+    var tipoBg = a.tipo === 'Super' ? 'background:var(--goldGlow);color:var(--gold);' : 'background:var(--purpleGlow);color:var(--purple);';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(36,48,73,0.3);">' +
+      '<div style="flex:1;"><div style="font-size:14px;font-weight:500;">' + dn(a.nome) + '</div>' +
+      '<div style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-top:2px;' + tipoBg + '">' + tipoLabel + '</div></div>' +
+      '<div style="display:flex;gap:6px;align-items:center;">' +
+      '<button style="padding:6px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--blue);background:transparent;color:var(--blue);" onclick="editarSenhaAdmin(\'' + a.nome.replace(/'/g, "\\'") + '\')">✏️ Senha</button>';
+    if (a.tipo !== 'Super') {
+      h += '<button style="padding:6px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--red);background:transparent;color:var(--red);" onclick="removeAdmin(\'' + a.nome.replace(/'/g, "\\'") + '\')">Remover</button>';
+    }
+    h += '</div></div>';
+  });
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+async function addAdmin() {
+  var nome = $('novoAdminNome').value;
+  var senha = $('novoAdminSenha').value.trim();
+  if (!nome) { showToast('Selecione um jogador!', true); return; }
+  if (!senha) { showToast('Digite uma senha!', true); return; }
+
+  var { error } = await sb.from('admins').insert({ grupo_id: grupoAtual.id, nome: nome, senha: senha, tipo: 'Admin' });
+  if (error) {
+    if (error.message.includes('duplicate')) showToast(dn(nome) + ' já é ADM.', true);
+    else showToast('Erro: ' + error.message, true);
+    return;
+  }
+  admNames.push(nome);
+  showToast(dn(nome) + ' adicionado como ADM.');
+  logAsync(currentUser, 'ADD_ADMIN', nome);
+  loadAdmAdmins();
+}
+
+async function removeAdmin(nome) {
+  if (!confirm('Remover ' + dn(nome) + ' como ADM?')) return;
+  await sb.from('admins').delete().eq('grupo_id', grupoAtual.id).eq('nome', nome);
+  var idx = admNames.indexOf(nome);
+  if (idx > -1) admNames.splice(idx, 1);
+  showToast(dn(nome) + ' removido de ADM.');
+  logAsync(currentUser, 'REMOVE_ADMIN', nome);
+  loadAdmAdmins();
+}
+
+async function editarSenhaAdmin(nome) {
+  var novaSenha = prompt('Nova senha para ' + dn(nome) + ':');
+  if (novaSenha === null) return;
+  if (!novaSenha.trim()) { showToast('A senha não pode ser vazia!', true); return; }
+  var { error } = await sb.from('admins').update({ senha: novaSenha.trim() }).eq('grupo_id', grupoAtual.id).eq('nome', nome);
+  if (error) { showToast('Erro: ' + error.message, true); return; }
+  showToast('Senha de ' + dn(nome) + ' atualizada.');
+  logAsync(currentUser, 'ALTERAR_SENHA_ADMIN', nome);
+}
+
+// ============================================================
+// AO VIVO
 // ============================================================
 var aoVivoPresentes = [], teamPicks = {};
 
