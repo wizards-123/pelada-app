@@ -16,11 +16,8 @@
   #loadingOverlay{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px}
   .loader{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-
-  /* Grupo Screen + Login Screen shared */
   #grupoScreen,#loginScreen{display:none;min-height:100vh;min-height:100dvh;position:relative;background:linear-gradient(160deg,#0a0f1a 0%,#0f1a2e 50%,#0d1522 100%);padding:24px;flex-direction:column;align-items:center;justify-content:center}
   html.light #grupoScreen,html.light #loginScreen{background:linear-gradient(160deg,#eef2f7 0%,#dfe6ef 50%,#e8ecf1 100%)}
-
   .login-logo{font-family:'Outfit',sans-serif;font-size:42px;font-weight:800;background:linear-gradient(135deg,var(--green),#4ade80,var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-1px;margin-bottom:4px}
   .login-sub{color:var(--text2);font-size:14px;margin-bottom:40px}
   .login-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:100%;max-width:360px;position:relative}
@@ -41,8 +38,8 @@
   .app-header-grupo{font-size:11px;color:var(--text3);margin-top:1px}
   .btn-logout{background:none;border:1px solid var(--border);color:var(--text2);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
   .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(16,24,40,0.95);backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:8px 0 max(8px,env(safe-area-inset-bottom))}
-  .nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--text3);cursor:pointer;padding:6px 12px;border:none;background:none;font-family:inherit;transition:color .2s}
-  .nav-item.active{color:var(--green)}.nav-item svg{width:22px;height:22px}.nav-item.active svg{filter:drop-shadow(0 0 6px rgba(34,197,94,0.4))}
+  .nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--text3);cursor:pointer;padding:6px 8px;border:none;background:none;font-family:inherit;transition:color .2s}
+  .nav-item.active{color:var(--green)}.nav-item svg{width:20px;height:20px}.nav-item.active svg{filter:drop-shadow(0 0 6px rgba(34,197,94,0.4))}
   .page{display:none;padding:20px;animation:fadeIn .2s ease}.page.active{display:block}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   .section-title{font-family:'Outfit',sans-serif;font-size:22px;font-weight:700;margin-bottom:16px}
@@ -63,7 +60,7 @@
   .ranking-name{flex:1;font-size:14px}.ranking-votes{font-size:14px;font-weight:600;color:var(--green)}
   .checkbox-list{max-height:300px;overflow-y:auto}.checkbox-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(36,48,73,0.3);cursor:pointer}.checkbox-item input[type="checkbox"]{width:18px;height:18px;accent-color:var(--green);flex-shrink:0}.checkbox-item label{font-size:14px;cursor:pointer;flex:1}
   .log-table{width:100%;border-collapse:collapse;font-size:12px}.log-table th{text-align:left;padding:8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap}.log-table td{padding:8px;border-bottom:1px solid rgba(36,48,73,0.3);vertical-align:top}.log-table tr:nth-child(even) td{background:rgba(17,24,39,0.5)}.log-time{color:var(--text3);white-space:nowrap}
-  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg2);padding:4px;border-radius:10px}.tab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;color:var(--text3);transition:all .2s;border:none;background:none;font-family:inherit}.tab.active{background:var(--card);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg2);padding:4px;border-radius:10px;overflow-x:auto}.tab{flex:1;padding:10px 6px;text-align:center;font-size:12px;font-weight:500;border-radius:8px;cursor:pointer;color:var(--text3);transition:all .2s;border:none;background:none;font-family:inherit;white-space:nowrap;min-width:0}.tab.active{background:var(--card);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
   .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:var(--card);border:1px solid var(--green);color:var(--text);padding:14px 24px;border-radius:12px;font-size:14px;z-index:10000;transition:transform .3s ease;box-shadow:0 8px 32px rgba(0,0,0,0.4)}.toast.show{transform:translateX(-50%) translateY(0)}.toast.error{border-color:var(--red)}
   .mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt20{margin-top:20px}.mb16{margin-bottom:16px}
   .text-muted{color:var(--text2);font-size:13px}.flex-between{display:flex;justify-content:space-between;align-items:center}
@@ -92,24 +89,15 @@
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .realtime-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:blink 1.5s ease-in-out infinite;margin-right:6px}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
-
-  /* Grupo cards */
   .grupo-card{display:flex;align-items:center;justify-content:space-between;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all .2s;width:100%;text-align:left;font-family:inherit;color:inherit}
   .grupo-card:hover,.grupo-card:active{border-color:var(--green);background:rgba(34,197,94,0.05);transform:translateY(-1px)}
-  .grupo-card-nome{font-size:16px;font-weight:600;color:var(--text)}
-  .grupo-card-id{font-size:12px;color:var(--text3);background:var(--bg2);padding:3px 8px;border-radius:6px}
-  .grupo-form-input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;font-family:inherit;outline:none;margin-bottom:10px}
-  .grupo-form-input:focus{border-color:var(--green)}
-  .grupo-form-input::placeholder{color:var(--text3)}
+  .grupo-card-nome{font-size:16px;font-weight:600;color:var(--text)}.grupo-card-id{font-size:12px;color:var(--text3);background:var(--bg2);padding:3px 8px;border-radius:6px}
+  .grupo-form-input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;font-family:inherit;outline:none;margin-bottom:10px}.grupo-form-input:focus{border-color:var(--green)}.grupo-form-input::placeholder{color:var(--text3)}
   .grupo-divider{margin-top:20px;border-top:1px solid var(--border);padding-top:16px}
 </style>
 </head>
 <body>
-
-<!-- Loading -->
 <div id="loadingOverlay"><div class="loader"></div><div style="color:var(--text2);font-size:14px;">Carregando...</div></div>
-
-<!-- TELA 0: Seleção de Grupo -->
 <div id="grupoScreen">
   <button class="login-theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button>
   <div class="login-logo">⚽ Pelada</div>
@@ -117,36 +105,26 @@
   <div class="login-card">
     <div id="grupoLoading" style="text-align:center;padding:20px;"><div class="skeleton" style="height:60px;"></div></div>
     <div id="grupoList" style="display:flex;flex-direction:column;gap:10px;"></div>
-
-    <!-- Seção de senha do grupo (aparece ao clicar num grupo) -->
     <div id="grupoSenhaSection" style="display:none;">
-      <div style="text-align:center;margin-bottom:16px;">
-        <div style="font-size:15px;font-weight:600;color:var(--text);" id="grupoSenhaNome"></div>
-        <div style="font-size:12px;color:var(--text3);margin-top:4px;">Digite a senha para entrar</div>
-      </div>
+      <div style="text-align:center;margin-bottom:16px;"><div style="font-size:15px;font-weight:600;color:var(--text);" id="grupoSenhaNome"></div><div style="font-size:12px;color:var(--text3);margin-top:4px;">Digite a senha para entrar</div></div>
       <input type="password" id="grupoSenhaInput" placeholder="Senha da pelada" class="grupo-form-input" onkeydown="if(event.key==='Enter')validarSenhaGrupo()">
       <button class="btn btn-primary" onclick="validarSenhaGrupo()" style="margin-bottom:10px;">Entrar</button>
       <button class="btn btn-secondary" onclick="voltarParaListaGrupos()" style="font-size:13px;">← Voltar</button>
     </div>
-
-    <div class="grupo-divider" id="grupoDivider">
-      <button class="btn btn-secondary" onclick="toggleCriarGrupo()" style="font-size:13px;">➕ Criar nova pelada</button>
-    </div>
+    <div class="grupo-divider" id="grupoDivider"><button class="btn btn-secondary" onclick="toggleCriarGrupo()" style="font-size:13px;">➕ Criar nova pelada</button></div>
     <div id="criarGrupoForm" style="display:none;margin-top:16px;">
-      <input type="text" id="novoGrupoNome" placeholder="Nome da pelada (ex: Pelada de Quinta)" class="grupo-form-input">
-      <input type="text" id="novoGrupoId" placeholder="Código único (ex: QUINTA, LEBLON)" class="grupo-form-input" style="text-transform:uppercase;">
-      <input type="password" id="novoGrupoSenhaAcesso" placeholder="Senha de acesso da pelada" class="grupo-form-input">
-      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Todos os jogadores usarão esta senha para entrar</div>
+      <input type="text" id="novoGrupoNome" placeholder="Nome da pelada" class="grupo-form-input">
+      <input type="text" id="novoGrupoId" placeholder="Código único (ex: QUINTA)" class="grupo-form-input" style="text-transform:uppercase;">
+      <input type="password" id="novoGrupoSenhaAcesso" placeholder="Senha de acesso" class="grupo-form-input">
+      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Todos usarão esta senha</div>
       <input type="text" id="novoGrupoAdm" placeholder="Nome do administrador" class="grupo-form-input">
-      <input type="password" id="novoGrupoSenha" placeholder="Senha do administrador" class="grupo-form-input">
-      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Somente o ADM usará esta senha</div>
+      <input type="password" id="novoGrupoSenha" placeholder="Senha do ADM" class="grupo-form-input">
+      <div style="font-size:11px;color:var(--text3);margin:-6px 0 10px 4px;">Só o ADM usa esta</div>
       <button class="btn btn-primary" onclick="criarGrupo()">Criar Pelada</button>
     </div>
     <div id="grupoError" class="login-error"></div>
   </div>
 </div>
-
-<!-- TELA 1: Login (agora com nome do grupo) -->
 <div id="loginScreen">
   <button class="login-theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button>
   <div class="login-logo">⚽ Pelada</div>
@@ -160,21 +138,8 @@
     <button class="btn btn-secondary" onclick="voltarParaGrupos()" style="font-size:13px;">← Trocar de pelada</button>
   </div>
 </div>
-
-<!-- TELA 2: App -->
 <div id="appScreen">
-  <div class="app-header">
-    <div>
-      <div class="app-header-title">⚽ Pelada</div>
-      <div class="app-header-user">Logado: <span id="headerUserName"></span></div>
-      <div class="app-header-grupo" id="headerGrupoName"></div>
-    </div>
-    <div class="header-actions">
-      <button class="theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button>
-      <button class="btn-logout" onclick="doLogout()">Sair</button>
-    </div>
-  </div>
-
+  <div class="app-header"><div><div class="app-header-title">⚽ Pelada</div><div class="app-header-user">Logado: <span id="headerUserName"></span></div><div class="app-header-grupo" id="headerGrupoName"></div></div><div class="header-actions"><button class="theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button><button class="btn-logout" onclick="doLogout()">Sair</button></div></div>
   <div id="pageHome" class="page active"><div class="section-title">🏠 Início</div><div id="homeContent"><div class="skeleton"></div></div></div>
   <div id="pageVotar" class="page"><div class="section-title">🗳️ Votação</div><div id="votarContent"></div></div>
   <div id="pageResultados" class="page"><div class="section-title">🏆 Resultados</div>
@@ -184,16 +149,16 @@
   </div>
   <div id="pageAdm" class="page"><div class="section-title">⚙️ Painel do ADM</div><div id="admContent"></div></div>
   <div id="pageAoVivo" class="page"><div class="section-title"><span class="realtime-dot"></span>Ao Vivo</div><div id="aoVivoContent"></div></div>
-
+  <div id="pageFinanceiro" class="page"><div class="section-title">💰 Financeiro</div><div id="financeiroContent"></div></div>
   <div class="bottom-nav">
     <button class="nav-item active" onclick="navigateTo('Home')" id="navHome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>Início</button>
     <button class="nav-item" onclick="navigateTo('AoVivo')" id="navAoVivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Ao Vivo</button>
     <button class="nav-item" onclick="navigateTo('Votar')" id="navVotar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>Votar</button>
     <button class="nav-item" onclick="navigateTo('Resultados')" id="navResultados"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Ranking</button>
+    <button class="nav-item" onclick="navigateTo('Financeiro')" id="navFinanceiro" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Financeiro</button>
     <button class="nav-item" onclick="navigateTo('Adm')" id="navAdm" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>ADM</button>
   </div>
 </div>
-
 <div id="toast" class="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="app.js"></script>
