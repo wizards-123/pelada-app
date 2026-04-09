@@ -38,15 +38,18 @@ async function loadAdmPelada() {
 
   var po = '';
   allPeladas.forEach(function(p, i) {
-    var df = p.data;
-    try { df = new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR'); } catch(e) {}
-    po += '<option value="' + p.id + '"' + (i === 0 ? ' selected' : '') + '>' + p.id + ' (' + df + ') — ' + p.status + '</option>';
+    po += '<option value="' + p.id + '"' + (i === 0 ? ' selected' : '') + '>' + peladaLabelComData(p) + ' — ' + p.status + '</option>';
   });
 
   $('admTabPelada').innerHTML =
-    '<div class="card"><div class="card-title">📅 Nova Pelada</div><div class="input-row"><input type="date" id="novaPeladaData"><button class="btn btn-primary" onclick="criarNovaPelada()">Criar</button></div></div>' +
+    '<div class="card"><div class="card-title">📅 Nova Pelada</div>' +
+    '<div class="input-row mb16"><input type="date" id="novaPeladaData"><button class="btn btn-primary" onclick="criarNovaPelada()">Criar</button></div>' +
+    '</div>' +
     (allPeladas.length > 0
-      ? '<div class="card"><div class="card-title">📋 Gerenciar</div><select class="vote-select mb16" id="admPeladaSelect" onchange="onAdmPeladaSelectChange()">' + po + '</select><div id="admPeladaActions"></div></div>' +
+      ? '<div class="card"><div class="card-title">📋 Gerenciar</div>' +
+        '<select class="vote-select mb16" id="admPeladaSelect" onchange="onAdmPeladaSelectChange()">' + po + '</select>' +
+        '<div id="admPeladaRename"></div>' +
+        '<div id="admPeladaActions"></div></div>' +
         '<div class="card"><div class="card-title">👥 Presença</div><div id="admPresencaList"></div><button class="btn btn-primary mt12" onclick="salvarPresenca()">Salvar</button></div>'
       : '');
 
@@ -56,6 +59,16 @@ async function loadAdmPelada() {
 async function loadAdmPeladaDetails(pid) {
   var pel = allPeladas.find(function(p) { return p.id === pid; });
   if (!pel) return;
+
+  // Rename field
+  var re = $('admPeladaRename');
+  if (re) {
+    re.innerHTML =
+      '<div class="input-row mb16">' +
+      '<input type="text" id="renamePeladaInput" placeholder="Nome da pelada" value="' + (pel.nome || pel.id).replace(/"/g, '&quot;') + '">' +
+      '<button class="btn btn-secondary" style="width:auto;padding:10px 16px;font-size:13px;" onclick="renamePelada(\'' + pid + '\')">Renomear</button>' +
+      '</div>';
+  }
 
   var { data: vt } = await sb.from('votos').select('votante').eq('pelada_id', pid).eq('grupo_id', grupoAtual.id);
   var uq = {};
@@ -91,11 +104,39 @@ async function loadAdmPeladaDetails(pid) {
 
 function onAdmPeladaSelectChange() { loadAdmPeladaDetails($('admPeladaSelect').value); }
 
+async function renamePelada(pid) {
+  var input = $('renamePeladaInput');
+  if (!input) return;
+  var novoNome = input.value.trim();
+  if (!novoNome) { showToast('Digite um nome.', true); return; }
+
+  var { error: e } = await sb.from('peladas').update({ nome: novoNome }).eq('id', pid).eq('grupo_id', grupoAtual.id);
+  if (e) { showToast(e.message, true); return; }
+
+  showToast('Nome atualizado!');
+  logAsync(currentUser, 'RENOMEAR_PELADA', pid + ' → ' + novoNome);
+
+  // Atualizar objetos locais
+  var found = allPeladas.find(function(p) { return p.id === pid; });
+  if (found) found.nome = novoNome;
+  if (peladaAtual && peladaAtual.id === pid) peladaAtual.nome = novoNome;
+
+  // Atualizar o select sem recarregar tudo
+  var sel = $('admPeladaSelect');
+  if (sel) {
+    var opt = sel.querySelector('option[value="' + pid + '"]');
+    if (opt) {
+      var pel = found || peladaAtual;
+      opt.textContent = peladaLabelComData(pel) + ' — ' + pel.status;
+    }
+  }
+}
+
 async function criarNovaPelada() {
   var d = $('novaPeladaData').value;
   if (!d) { showToast('Data!', true); return; }
   var { data: nid } = await sb.rpc('next_pelada_id_grupo', { p_grupo_id: grupoAtual.id });
-  var { error: e } = await sb.from('peladas').insert({ id: nid, data: d, status: 'Agendada', votacao_aberta: false, grupo_id: grupoAtual.id });
+  var { error: e } = await sb.from('peladas').insert({ id: nid, data: d, status: 'Agendada', votacao_aberta: false, grupo_id: grupoAtual.id, nome: nid });
   if (e) { showToast(e.message, true); return; }
   showToast('Criada: ' + nid);
   logAsync(currentUser, 'CRIAR_PELADA', nid);
