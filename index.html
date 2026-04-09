@@ -60,7 +60,7 @@
   .ranking-name{flex:1;font-size:14px}.ranking-votes{font-size:14px;font-weight:600;color:var(--green)}
   .checkbox-list{max-height:300px;overflow-y:auto}.checkbox-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(36,48,73,0.3);cursor:pointer}.checkbox-item input[type="checkbox"]{width:18px;height:18px;accent-color:var(--green);flex-shrink:0}.checkbox-item label{font-size:14px;cursor:pointer;flex:1}
   .log-table{width:100%;border-collapse:collapse;font-size:12px}.log-table th{text-align:left;padding:8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap}.log-table td{padding:8px;border-bottom:1px solid rgba(36,48,73,0.3);vertical-align:top}.log-table tr:nth-child(even) td{background:rgba(17,24,39,0.5)}.log-time{color:var(--text3);white-space:nowrap}
-  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg2);padding:4px;border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tab{flex:0 0 auto;padding:10px 14px;text-align:center;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;color:var(--text3);transition:all .2s;border:none;background:none;font-family:inherit;white-space:nowrap}.tab.active{background:var(--card);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg2);padding:4px;border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tab{flex:1 0 auto;padding:10px 14px;text-align:center;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;color:var(--text3);transition:all .2s;border:none;background:none;font-family:inherit;white-space:nowrap}.tab.active{background:var(--card);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
   .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:var(--card);border:1px solid var(--green);color:var(--text);padding:14px 24px;border-radius:12px;font-size:14px;z-index:10000;transition:transform .3s ease;box-shadow:0 8px 32px rgba(0,0,0,0.4)}.toast.show{transform:translateX(-50%) translateY(0)}.toast.error{border-color:var(--red)}
   .mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt20{margin-top:20px}.mb16{margin-bottom:16px}
   .text-muted{color:var(--text2);font-size:13px}.flex-between{display:flex;justify-content:space-between;align-items:center}
@@ -94,6 +94,45 @@
   .grupo-card-nome{font-size:16px;font-weight:600;color:var(--text)}.grupo-card-id{font-size:12px;color:var(--text3);background:var(--bg2);padding:3px 8px;border-radius:6px}
   .grupo-form-input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;font-family:inherit;outline:none;margin-bottom:10px}.grupo-form-input:focus{border-color:var(--green)}.grupo-form-input::placeholder{color:var(--text3)}
   .grupo-divider{margin-top:20px;border-top:1px solid var(--border);padding-top:16px}
+
+  /* ===== PELADA FILTER DROPDOWN ===== */
+  .pelada-filter-wrap{position:relative;margin-bottom:16px}
+  .pelada-filter-btn{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;cursor:pointer;transition:border-color .2s;user-select:none;-webkit-user-select:none}
+  .pelada-filter-btn:active,.pelada-filter-btn.open{border-color:var(--green)}
+  .pelada-filter-btn svg{transition:transform .2s;flex-shrink:0}
+  .pelada-filter-btn.open svg{transform:rotate(180deg)}
+  .pelada-filter-dropdown{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:12px;z-index:50;max-height:260px;overflow-y:auto;box-shadow:0 12px 32px rgba(0,0,0,0.4);padding:8px 0}
+  html.light .pelada-filter-dropdown{box-shadow:0 12px 32px rgba(0,0,0,0.1)}
+  .pelada-filter-actions{display:flex;gap:8px;padding:4px 12px 8px;border-bottom:1px solid var(--border);margin-bottom:4px}
+  .pelada-filter-action-btn{padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-size:12px;font-family:inherit;cursor:pointer;transition:all .2s}
+  .pelada-filter-action-btn:active{background:var(--greenGlow);border-color:var(--green);color:var(--green)}
+  .pelada-filter-item{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);transition:background .15s}
+  .pelada-filter-item:active{background:rgba(34,197,94,0.05)}
+  .pelada-filter-item input[type="checkbox"]{width:16px;height:16px;accent-color:var(--green);flex-shrink:0;cursor:pointer}
+  .pelada-filter-item span{flex:1}
+
+  /* ===== RANKING TABLE ===== */
+  .ranking-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+  .rt-th{padding:8px 6px;color:var(--text3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;border-bottom:2px solid var(--border);text-align:center;vertical-align:middle}
+  .rt-th:first-child{text-align:center;width:30px}
+  .rt-th:nth-child(2){text-align:left}
+  .rt-sortable{cursor:pointer;user-select:none;-webkit-user-select:none;transition:color .15s}
+  .rt-sortable:active,.rt-sorted{color:var(--green)}
+  .rt-td{padding:8px 6px;border-bottom:1px solid rgba(36,48,73,0.3);text-align:center;vertical-align:middle;font-size:13px}
+  .rt-rank{font-weight:700;width:30px;text-align:center}
+  .rt-name{text-align:left;font-weight:500;max-width:90px;overflow:hidden;text-overflow:ellipsis}
+  .rt-num{font-variant-numeric:tabular-nums}
+  .rt-bold{font-weight:700;color:var(--green)}
+  tr.rt-gold .rt-rank{color:var(--gold)}
+  tr.rt-silver .rt-rank{color:#94a3b8}
+  tr.rt-bronze .rt-rank{color:#d97706}
+  tr.rt-gold td{background:rgba(250,204,21,0.04)}
+  tr.rt-silver td{background:rgba(148,163,184,0.04)}
+  tr.rt-bronze td{background:rgba(217,119,6,0.04)}
+  html.light .rt-td{border-bottom-color:rgba(209,217,230,0.5)}
+  html.light tr.rt-gold td{background:rgba(202,138,4,0.06)}
+  html.light tr.rt-silver td{background:rgba(71,85,105,0.04)}
+  html.light tr.rt-bronze td{background:rgba(234,88,12,0.04)}
 </style>
 </head>
 <body>
@@ -143,9 +182,10 @@
   <div id="pageHome" class="page active"><div class="section-title">🏠 Início</div><div id="homeContent"><div class="skeleton"></div></div></div>
   <div id="pageVotar" class="page"><div class="section-title">🗳️ Votação</div><div id="votarContent"></div></div>
   <div id="pageResultados" class="page"><div class="section-title">🏆 Resultados</div>
-    <div class="tabs" id="resultTabs"><button class="tab active" onclick="switchResultTab('semana')">Semana</button><button class="tab" onclick="switchResultTab('geral')">Geral</button><button class="tab" onclick="switchResultTab('artilharia')">Artilharia</button><button class="tab" onclick="switchResultTab('vitorias')">Vitórias</button></div>
-    <div id="resultadosSemana"></div><div id="resultadosGeral" style="display:none;"></div><div id="resultadosArtilharia" style="display:none;"></div><div id="resultadosVitorias" style="display:none;"></div>
-    <div id="votosDetalhados" style="display:none;" class="mt20"><div class="card"><div class="card-title">🔍 Votos Detalhados (ADM)</div><div id="votosDetalhadosContent"></div></div></div>
+    <div id="resultadosSemana"></div>
+    <div id="resultadosGeral" style="display:none;"></div>
+    <div id="resultadosArtilharia" style="display:none;"></div>
+    <div id="resultadosVitorias" style="display:none;"></div>
   </div>
   <div id="pageAdm" class="page"><div class="section-title">⚙️ Painel do ADM</div><div id="admContent"></div></div>
   <div id="pageAoVivo" class="page"><div class="section-title"><span class="realtime-dot"></span>Ao Vivo</div><div id="aoVivoContent"></div></div>
