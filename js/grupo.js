@@ -45,17 +45,42 @@ async function showGrupoScreen() {
 
 var grupoSelecionadoId = null;
 
-function selecionarGrupo(gid) {
+async function selecionarGrupo(gid) {
   grupoSelecionadoId = gid;
   $('grupoError').style.display = 'none';
+
+  // Buscar grupo para checar se tem senha
+  var { data: g, error: e } = await sb.from('grupos').select('*').eq('id', gid).single();
+  if (e || !g) { showGrupoError('Grupo não encontrado.'); return; }
+
+  // Se não tem senha, entrar direto
+  if (g.tem_senha === false) {
+    grupoAtual = g;
+    admName = g.admin_name;
+    admPassword = g.admin_password;
+    superAdminName = g.admin_name;
+
+    var { data: ad } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id);
+    if (ad && ad.length > 0) {
+      admNames = ad.map(function(a) { return a.nome; });
+      var se = ad.find(function(a) { return a.tipo === 'Super'; });
+      if (se) superAdminName = se.nome;
+    } else {
+      admNames = [g.admin_name];
+      superAdminName = g.admin_name;
+    }
+
+    initLogin();
+    return;
+  }
+
+  // Tem senha: mostrar campo de senha
   $('grupoSenhaInput').value = '';
   $('grupoList').style.display = 'none';
   $('grupoDivider').style.display = 'none';
   $('criarGrupoForm').style.display = 'none';
   $('grupoSenhaSection').style.display = 'block';
-  sb.from('grupos').select('id, nome').eq('id', gid).single().then(function(r) {
-    if (r.data) $('grupoSenhaNome').textContent = r.data.nome;
-  });
+  $('grupoSenhaNome').textContent = g.nome;
   setTimeout(function() { $('grupoSenhaInput').focus(); }, 100);
 }
 
@@ -110,7 +135,7 @@ async function criarGrupo() {
   if (id.length < 3 || id.length > 20) { showGrupoError('Código: 3 a 20 chars.'); return; }
 
   var ac = ad + ' (ADM)';
-  var { error: e } = await sb.from('grupos').insert({ id: id, nome: nm, admin_name: ac, admin_password: pw, senha_acesso: sa2 });
+  var { error: e } = await sb.from('grupos').insert({ id: id, nome: nm, admin_name: ac, admin_password: pw, senha_acesso: sa2, tem_senha: true });
   if (e) { showGrupoError(e.message.includes('duplicate') ? 'Código já existe.' : e.message); return; }
 
   await sb.from('jogadores').insert({ nome: ac, grupo_id: id });
