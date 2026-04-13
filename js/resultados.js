@@ -16,6 +16,12 @@ async function loadResultados() {
   $('resultadosArtilharia').style.display = 'none';
   $('resultadosVitorias').style.display = 'none';
 
+  // ============================================================
+  // VOTE-GATE: bloqueia ranking se há votação aberta e user não votou
+  // ============================================================
+  var canView = await checkVoteGate();
+  if (!canView) return;
+
   // Buscar todas as peladas do grupo
   var { data: allP } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('data', { ascending: false });
   resultAllPeladas = allP || [];
@@ -28,6 +34,52 @@ async function loadResultados() {
   // Renderizar estrutura
   renderResultadosShell();
   await refreshResultadosData();
+}
+
+// ============================================================
+// VOTE-GATE CHECK
+// Retorna true se pode ver, false se bloqueado
+// ============================================================
+async function checkVoteGate() {
+  // ADM sempre pode ver
+  if (isAdm) return true;
+
+  // Buscar peladas com votação aberta
+  var { data: abertas } = await sb.from('peladas').select('id').eq('grupo_id', grupoAtual.id).eq('votacao_aberta', true);
+
+  // Se não há nenhuma pelada com votação aberta, todos podem ver
+  if (!abertas || abertas.length === 0) return true;
+
+  // Verificar se o usuário já votou em TODAS as peladas com votação aberta
+  var peladaIds = abertas.map(function(p) { return p.id; });
+  var { data: votos } = await sb.from('votos').select('pelada_id').eq('grupo_id', grupoAtual.id).eq('votante', currentUser).in('pelada_id', peladaIds);
+
+  // Agrupar peladas em que o user votou
+  var peladasVotadas = {};
+  if (votos) {
+    votos.forEach(function(v) { peladasVotadas[v.pelada_id] = true; });
+  }
+
+  // Verificar se votou em todas as peladas abertas
+  var faltaVotar = peladaIds.filter(function(pid) { return !peladasVotadas[pid]; });
+
+  if (faltaVotar.length === 0) return true;
+
+  // Bloqueado: renderizar mensagem
+  renderVoteGateBlock();
+  return false;
+}
+
+function renderVoteGateBlock() {
+  var el = $('resultadosSemana');
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="empty-state" style="padding:60px 20px;">' +
+      '<span class="emoji" style="font-size:48px;">🗳️</span>' +
+      '<div style="font-size:16px;font-weight:600;color:var(--text);margin-top:12px;margin-bottom:8px;">Você ainda não votou</div>' +
+      '<div style="font-size:14px;color:var(--text2);margin-bottom:24px;line-height:1.5;">Vote na pelada aberta para<br>visualizar o ranking.</div>' +
+      '<button class="btn btn-primary" style="max-width:220px;margin:0 auto;" onclick="navigateTo(\'Votar\')">Ir para Votação</button>' +
+    '</div>';
 }
 
 function renderResultadosShell() {
