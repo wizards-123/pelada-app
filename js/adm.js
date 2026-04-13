@@ -1,5 +1,5 @@
 // ============================================================
-// adm.js - Painel do ADM (pelada, jogadores, logs, admins)
+// adm.js - Painel do ADM (pelada, jogadores, logs, admins, grupo)
 // ============================================================
 
 function loadAdm() {
@@ -8,11 +8,13 @@ function loadAdm() {
     '<div class="tabs" id="admTabs">' +
     '<button class="tab active" onclick="switchAdmTab(\'pelada\')">Pelada</button>' +
     '<button class="tab" onclick="switchAdmTab(\'jogadores\')">Jogadores</button>' +
+    '<button class="tab" onclick="switchAdmTab(\'grupo\')">Grupo</button>' +
     '<button class="tab" onclick="switchAdmTab(\'logs\')">Logs</button>' +
     (isSuperAdmin ? '<button class="tab" onclick="switchAdmTab(\'admins\')">Admins</button>' : '') +
     '</div>' +
     '<div id="admTabPelada"></div>' +
     '<div id="admTabJogadores" style="display:none;"></div>' +
+    '<div id="admTabGrupo" style="display:none;"></div>' +
     '<div id="admTabLogs" style="display:none;"></div>' +
     (isSuperAdmin ? '<div id="admTabAdmins" style="display:none;"></div>' : '');
   loadAdmPelada();
@@ -20,13 +22,94 @@ function loadAdm() {
 
 function switchAdmTab(t) {
   document.querySelectorAll('#admTabs .tab').forEach(function(tb) { tb.classList.remove('active'); });
-  ['admTabPelada','admTabJogadores','admTabLogs'].forEach(function(id) { $(id).style.display = 'none'; });
+  ['admTabPelada','admTabJogadores','admTabGrupo','admTabLogs'].forEach(function(id) {
+    var e = $(id); if (e) e.style.display = 'none';
+  });
   var ae = $('admTabAdmins'); if (ae) ae.style.display = 'none';
 
-  if (t === 'pelada') { document.querySelectorAll('#admTabs .tab')[0].classList.add('active'); $('admTabPelada').style.display = 'block'; loadAdmPelada(); }
-  if (t === 'jogadores') { document.querySelectorAll('#admTabs .tab')[1].classList.add('active'); $('admTabJogadores').style.display = 'block'; loadAdmJogadores(); }
-  if (t === 'logs') { document.querySelectorAll('#admTabs .tab')[2].classList.add('active'); $('admTabLogs').style.display = 'block'; loadAdmLogs(); }
-  if (t === 'admins' && isSuperAdmin) { document.querySelectorAll('#admTabs .tab')[3].classList.add('active'); $('admTabAdmins').style.display = 'block'; loadAdmAdmins(); }
+  var tabs = document.querySelectorAll('#admTabs .tab');
+  var map = { pelada: 0, jogadores: 1, grupo: 2, logs: 3, admins: 4 };
+  if (tabs[map[t]]) tabs[map[t]].classList.add('active');
+
+  var tid = 'admTab' + t.charAt(0).toUpperCase() + t.slice(1);
+  var te = $(tid); if (te) te.style.display = 'block';
+
+  if (t === 'pelada') loadAdmPelada();
+  else if (t === 'jogadores') loadAdmJogadores();
+  else if (t === 'grupo') loadAdmGrupo();
+  else if (t === 'logs') loadAdmLogs();
+  else if (t === 'admins' && isSuperAdmin) loadAdmAdmins();
+}
+
+// --- Grupo (senha config) ---
+async function loadAdmGrupo() {
+  var el = $('admTabGrupo');
+  showSkeleton('admTabGrupo');
+
+  // Buscar dados frescos do grupo
+  var { data: g } = await sb.from('grupos').select('*').eq('id', grupoAtual.id).single();
+  if (g) grupoAtual = g;
+
+  var temSenha = grupoAtual.tem_senha !== false;
+  var senhaAtual = grupoAtual.senha_acesso || '';
+
+  var h = '<div class="card"><div class="card-title">🔐 Senha da Pelada</div>';
+  h += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Defina se os jogadores precisam digitar uma senha para acessar o grupo.</div>';
+
+  // Toggle tem_senha
+  h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
+  h += '<span style="font-size:14px;font-weight:500;">Exigir senha de acesso</span>';
+  h += '<div class="toggle-wrap" onclick="toggleGrupoSenha()" id="grupoSenhaToggle" style="' +
+    'width:48px;height:26px;border-radius:13px;cursor:pointer;transition:background .2s;position:relative;flex-shrink:0;' +
+    'background:' + (temSenha ? 'var(--green)' : 'var(--bg3)') + ';border:1px solid ' + (temSenha ? 'var(--green)' : 'var(--border)') + ';">' +
+    '<div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left .2s;' +
+    'left:' + (temSenha ? '25px' : '3px') + ';box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div></div>';
+  h += '</div>';
+
+  // Campo de senha (visível só se tem_senha)
+  h += '<div id="grupoSenhaCampo" style="' + (temSenha ? '' : 'display:none;') + '">';
+  h += '<div class="vote-category"><label>Senha de acesso</label>';
+  h += '<input type="text" class="vote-select" id="grupoSenhaValor" value="' + senhaAtual.replace(/"/g, '&quot;') + '" placeholder="Digite a senha...">';
+  h += '</div>';
+  h += '<button class="btn btn-primary" onclick="salvarGrupoSenha()">Salvar Senha</button>';
+  h += '</div>';
+
+  h += '</div>';
+
+  // Info do grupo
+  h += '<div class="card"><div class="card-title">📋 Info do Grupo</div>';
+  h += '<div class="status-row"><span class="status-label">Nome</span><span class="status-value">' + grupoAtual.nome + '</span></div>';
+  h += '<div class="status-row"><span class="status-label">Código</span><span class="status-value">' + grupoAtual.id + '</span></div>';
+  h += '<div class="status-row"><span class="status-label">Senha ativa</span><span class="status-value">' + (temSenha ? '✅ Sim' : '❌ Não') + '</span></div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+function toggleGrupoSenha() {
+  var temSenha = grupoAtual.tem_senha !== false;
+  var novoValor = !temSenha;
+
+  // Atualizar no banco
+  sb.from('grupos').update({ tem_senha: novoValor }).eq('id', grupoAtual.id).then(function(res) {
+    if (res.error) { showToast(res.error.message, true); return; }
+    grupoAtual.tem_senha = novoValor;
+    showToast(novoValor ? 'Senha ativada.' : 'Senha desativada.');
+    logAsync(currentUser, 'GRUPO_SENHA', novoValor ? 'Ativou senha' : 'Desativou senha');
+    loadAdmGrupo();
+  });
+}
+
+async function salvarGrupoSenha() {
+  var novaSenha = $('grupoSenhaValor').value.trim();
+  if (!novaSenha) { showToast('Digite uma senha.', true); return; }
+
+  var { error: e } = await sb.from('grupos').update({ senha_acesso: novaSenha }).eq('id', grupoAtual.id);
+  if (e) { showToast(e.message, true); return; }
+
+  grupoAtual.senha_acesso = novaSenha;
+  showToast('Senha atualizada!');
+  logAsync(currentUser, 'GRUPO_SENHA', 'Alterou senha');
 }
 
 // --- Pelada ---
