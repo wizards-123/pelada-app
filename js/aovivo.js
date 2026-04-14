@@ -47,9 +47,96 @@ async function loadAoVivo() {
     setupRealtime(at.partida_id);
   } else {
     var pn = tp.length === 0 ? 1 : tp[tp.length - 1].numero + 1;
-    renderSetupPartida(tp, pn);
+    var preSelect = calcPreSelection(tp);
+    renderSetupPartida(tp, pn, preSelect);
     if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   }
+}
+
+// ============================================================
+// REI DA MESA: calcular pré-seleção para próxima partida
+// Retorna { players: { nome: 'A'|'B' }, stayTeam: 'A'|'B'|null }
+// ou null se não há pré-seleção
+// ============================================================
+function calcPreSelection(allPartidas) {
+  var finalizadas = allPartidas.filter(function(p) { return p.status === 'Finalizada'; });
+  if (finalizadas.length === 0) return null;
+
+  finalizadas.sort(function(a, b) { return a.numero - b.numero; });
+
+  var lastMatch = finalizadas[finalizadas.length - 1];
+
+  // Descobrir qual lado "ficou" (veio da partida anterior) NA última partida
+  var ficouNaUltima = calcFicouSide(finalizadas);
+
+  var stayTeamSide = null;
+  var stayPlayers = [];
+
+  if (lastMatch.vencedor === 'A') {
+    stayTeamSide = 'A';
+    stayPlayers = lastMatch.time_a || [];
+  } else if (lastMatch.vencedor === 'B') {
+    stayTeamSide = 'B';
+    stayPlayers = lastMatch.time_b || [];
+  } else {
+    // Empate: o desafiante fica, o que já estava sai
+    if (ficouNaUltima === null) {
+      // Partida 1 com empate: ninguém fica
+      return null;
+    }
+    if (ficouNaUltima === 'A') {
+      // A já estava, B é desafiante → B fica
+      stayTeamSide = 'B';
+      stayPlayers = lastMatch.time_b || [];
+    } else {
+      // B já estava, A é desafiante → A fica
+      stayTeamSide = 'A';
+      stayPlayers = lastMatch.time_a || [];
+    }
+  }
+
+  if (!stayPlayers || stayPlayers.length === 0) return null;
+
+  var picks = {};
+  stayPlayers.forEach(function(n) {
+    if (n) picks[n.trim()] = stayTeamSide;
+  });
+
+  return { players: picks, stayTeam: stayTeamSide };
+}
+
+// ============================================================
+// Determinar qual lado "ficou" (veio da partida anterior) NA última partida
+// Percorre o histórico até a penúltima partida para saber quem
+// entrou na última como "rei da mesa"
+// ============================================================
+function calcFicouSide(finalizadas) {
+  // finalizadas já ordenado por numero
+  if (finalizadas.length <= 1) return null;
+
+  // Rastrear quem fica após cada partida, parando ANTES da última
+  var ficou = null;
+
+  for (var i = 0; i < finalizadas.length - 1; i++) {
+    var match = finalizadas[i];
+
+    if (match.vencedor === 'A') {
+      ficou = 'A';
+    } else if (match.vencedor === 'B') {
+      ficou = 'B';
+    } else {
+      // Empate: desafiante fica
+      if (ficou === 'A') {
+        ficou = 'B';
+      } else if (ficou === 'B') {
+        ficou = 'A';
+      } else {
+        ficou = null;
+      }
+    }
+  }
+
+  return ficou;
 }
 
 function setupRealtime(pid) {
@@ -60,9 +147,16 @@ function setupRealtime(pid) {
     .subscribe();
 }
 
-function renderSetupPartida(tp, pn) {
+function renderSetupPartida(tp, pn, preSelect) {
   var el = $('aoVivoContent');
   teamPicks = {};
+
+  // Aplicar pré-seleção se existir
+  if (preSelect && preSelect.players) {
+    for (var nome in preSelect.players) {
+      teamPicks[nome] = preSelect.players[nome];
+    }
+  }
 
   var rh = '';
   if (tp.length > 0) {
@@ -76,13 +170,30 @@ function renderSetupPartida(tp, pn) {
   }
 
   var po = sa(aoVivoPresentes), ph = '';
-  po.forEach(function(n) { ph += '<div class="pool-chip" data-player="' + n + '" onclick="pickPlayer(this)">' + dn(n) + '</div>'; });
+  po.forEach(function(n) {
+    var cls = 'pool-chip';
+    if (teamPicks[n] === 'A') cls = 'pool-chip team-a';
+    else if (teamPicks[n] === 'B') cls = 'pool-chip team-b';
+    ph += '<div class="' + cls + '" data-player="' + n + '" onclick="pickPlayer(this)">' + dn(n) + '</div>';
+  });
+
+  // Contar pré-selecionados
+  var cA = 0, cB = 0;
+  for (var k in teamPicks) { if (teamPicks[k] === 'A') cA++; if (teamPicks[k] === 'B') cB++; }
+
+  // Banner informativo se houver pré-seleção
+  var preSelectBanner = '';
+  if (preSelect && preSelect.stayTeam) {
+    var stayLabel = preSelect.stayTeam === 'A' ? '🔵 Time A' : '🟠 Time B';
+    preSelectBanner = '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--greenGlow);border:1px solid rgba(34,197,94,0.3);border-radius:10px;margin-bottom:12px;font-size:13px;color:var(--green);">👑 Rei da mesa: ' + stayLabel + ' fica</div>';
+  }
 
   el.innerHTML = rh +
     '<div class="card"><div class="card-title">⚽ Partida ' + pn + '</div>' +
+    preSelectBanner +
     '<div class="team-pick-label">1º=🔵A, 2º=🟠B, 3º=remove</div>' +
     '<div class="player-pool" id="playerPool">' + ph + '</div>' +
-    '<div class="team-counters mt8">🔵 A: <span id="countA">0</span>/5 🟠 B: <span id="countB">0</span>/5</div></div>' +
+    '<div class="team-counters mt8">🔵 A: <span id="countA">' + cA + '</span>/5 🟠 B: <span id="countB">' + cB + '</span>/5</div></div>' +
     '<button class="btn btn-primary" onclick="iniciarPartida(' + pn + ')">Iniciar ' + pn + '</button>' +
     '<button class="btn btn-danger mt12" onclick="confirmarEncerrarPelada()" style="margin-top:12px;">🏁 Encerrar</button>';
 }
