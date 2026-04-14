@@ -1,9 +1,10 @@
 // ============================================================
-// aovivo.js - Ao Vivo, partidas, gols, realtime
+// aovivo.js - Ao Vivo, partidas, gols, realtime, substituições
 // ============================================================
 
 var aoVivoPresentes = [];
 var teamPicks = {};
+var subPendente = null; // { partida_id, jogador, time } - aguardando seleção do substituto
 
 async function loadAoVivo() {
   var el = $('aoVivoContent');
@@ -42,21 +43,25 @@ async function loadAoVivo() {
   var at = tp.find(function(p) { return p.status === 'EmAndamento'; }) || null;
 
   if (at) {
-    var { data: gl } = await sb.from('gols').select('*').eq('partida_id', at.partida_id).eq('grupo_id', grupoAtual.id).order('timestamp');
-    renderPartidaAtiva(at, gl || [], tp);
+    // Buscar gols e substituições em paralelo
+    var results = await Promise.all([
+      sb.from('gols').select('*').eq('partida_id', at.partida_id).eq('grupo_id', grupoAtual.id).order('timestamp'),
+      sb.from('substituicoes').select('*').eq('partida_id', at.partida_id).eq('grupo_id', grupoAtual.id).order('criado_em')
+    ]);
+    var gl = results[0].data || [];
+    var subs = results[1].data || [];
+    renderPartidaAtiva(at, gl, subs, tp);
     setupRealtime(at.partida_id);
   } else {
     var pn = tp.length === 0 ? 1 : tp[tp.length - 1].numero + 1;
     var preSelect = calcPreSelection(tp);
-    renderSetupPartida(tp, pn, preSelect);
+    await resolvePreSelectAndRender(tp, pn, preSelect);
     if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   }
 }
 
 // ============================================================
 // REI DA MESA: calcular pré-seleção para próxima partida
-// Retorna { players: { nome: 'A'|'B' }, stayTeam: 'A'|'B'|null }
-// ou null se não há pré-seleção
 // ============================================================
 function calcPreSelection(allPartidas) {
   var finalizadas = allPartidas.filter(function(p) { return p.status === 'Finalizada'; });
@@ -65,78 +70,90 @@ function calcPreSelection(allPartidas) {
   finalizadas.sort(function(a, b) { return a.numero - b.numero; });
 
   var lastMatch = finalizadas[finalizadas.length - 1];
-
-  // Descobrir qual lado "ficou" (veio da partida anterior) NA última partida
   var ficouNaUltima = calcFicouSide(finalizadas);
 
   var stayTeamSide = null;
-  var stayPlayers = [];
 
   if (lastMatch.vencedor === 'A') {
     stayTeamSide = 'A';
-    stayPlayers = lastMatch.time_a || [];
   } else if (lastMatch.vencedor === 'B') {
     stayTeamSide = 'B';
-    stayPlayers = lastMatch.time_b || [];
   } else {
-    // Empate: o desafiante fica, o que já estava sai
-    if (ficouNaUltima === null) {
-      // Partida 1 com empate: ninguém fica
-      return null;
-    }
-    if (ficouNaUltima === 'A') {
-      // A já estava, B é desafiante → B fica
-      stayTeamSide = 'B';
-      stayPlayers = lastMatch.time_b || [];
-    } else {
-      // B já estava, A é desafiante → A fica
-      stayTeamSide = 'A';
-      stayPlayers = lastMatch.time_a || [];
-    }
+    if (ficouNaUltima === null) return null;
+    stayTeamSide = (ficouNaUltima === 'A') ? 'B' : 'A';
   }
 
-  if (!stayPlayers || stayPlayers.length === 0) return null;
+  // Buscar quem TERMINOU jogando (precisa considerar substituições)
+  // Como substituições estão no DB e não temos aqui, usamos o array do time
+  // O array time_a/time_b já inclui substitutos (adicionados via addSubToTeam)
+  var teamArray = stayTeamSide === 'A' ? (lastMatch.time_a || []) : (lastMatch.time_b || []);
 
-  var picks = {};
-  stayPlayers.forEach(function(n) {
-    if (n) picks[n.trim()] = stayTeamSide;
-  });
+  // Precisamos saber quem saiu - mas não temos as subs aqui de forma síncrona
+  // Solução: guardar na partida os jogadores ativos
+  // Por ora, usamos o array completo e confiamos que o loadAoVivo
+  // vai buscar as subs para a partida ativa. Para o rei da mesa,
+  // precisamos buscar as subs da última partida finalizada.
 
-  return { players: picks, stayTeam: stayTeamSide };
+  // Retornar objeto especial que indica que precisa resolver subs
+  return { stayTeam: stayTeamSide, lastPartidaId: lastMatch.partida_id, teamArray: teamArray };
 }
 
-// ============================================================
-// Determinar qual lado "ficou" (veio da partida anterior) NA última partida
-// Percorre o histórico até a penúltima partida para saber quem
-// entrou na última como "rei da mesa"
-// ============================================================
 function calcFicouSide(finalizadas) {
-  // finalizadas já ordenado por numero
   if (finalizadas.length <= 1) return null;
-
-  // Rastrear quem fica após cada partida, parando ANTES da última
   var ficou = null;
-
   for (var i = 0; i < finalizadas.length - 1; i++) {
     var match = finalizadas[i];
-
     if (match.vencedor === 'A') {
       ficou = 'A';
     } else if (match.vencedor === 'B') {
       ficou = 'B';
     } else {
-      // Empate: desafiante fica
-      if (ficou === 'A') {
-        ficou = 'B';
-      } else if (ficou === 'B') {
-        ficou = 'A';
-      } else {
-        ficou = null;
-      }
+      if (ficou === 'A') ficou = 'B';
+      else if (ficou === 'B') ficou = 'A';
+      else ficou = null;
     }
   }
-
   return ficou;
+}
+
+// Versão async do setup que resolve substituições para rei da mesa
+async function resolvePreSelectAndRender(tp, pn, preSelect) {
+  var el = $('aoVivoContent');
+
+  if (!preSelect || !preSelect.stayTeam) {
+    renderSetupPartida(tp, pn, null);
+    return;
+  }
+
+  // Buscar substituições da última partida finalizada
+  var { data: subs } = await sb.from('substituicoes').select('*').eq('partida_id', preSelect.lastPartidaId).eq('grupo_id', grupoAtual.id);
+  subs = subs || [];
+
+  var teamSubs = subs.filter(function(s) { return s.time === preSelect.stayTeam; });
+
+  // Jogadores que saíram
+  var saiu = {};
+  teamSubs.forEach(function(s) { saiu[s.jogador_saiu] = true; });
+
+  // Jogadores ativos = array do time menos quem saiu
+  var activePlayers = preSelect.teamArray.filter(function(n) {
+    return n && !saiu[n.trim()];
+  });
+
+  // Limitar a 5 (os que terminaram jogando)
+  activePlayers = activePlayers.slice(0, 5);
+
+  if (activePlayers.length === 0) {
+    renderSetupPartida(tp, pn, null);
+    return;
+  }
+
+  var picks = {};
+  activePlayers.forEach(function(n) {
+    picks[n.trim()] = preSelect.stayTeam;
+  });
+
+  renderSetupPartida(tp, pn, { players: picks, stayTeam: preSelect.stayTeam });
 }
 
 function setupRealtime(pid) {
@@ -144,6 +161,7 @@ function setupRealtime(pid) {
   realtimeChannel = sb.channel('av-' + pid)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'gols', filter: 'partida_id=eq.' + pid }, function() { loadAoVivo(); })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partidas', filter: 'partida_id=eq.' + pid }, function() { loadAoVivo(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'substituicoes', filter: 'partida_id=eq.' + pid }, function() { loadAoVivo(); })
     .subscribe();
 }
 
@@ -151,7 +169,6 @@ function renderSetupPartida(tp, pn, preSelect) {
   var el = $('aoVivoContent');
   teamPicks = {};
 
-  // Aplicar pré-seleção se existir
   if (preSelect && preSelect.players) {
     for (var nome in preSelect.players) {
       teamPicks[nome] = preSelect.players[nome];
@@ -177,11 +194,9 @@ function renderSetupPartida(tp, pn, preSelect) {
     ph += '<div class="' + cls + '" data-player="' + n + '" onclick="pickPlayer(this)">' + dn(n) + '</div>';
   });
 
-  // Contar pré-selecionados
   var cA = 0, cB = 0;
   for (var k in teamPicks) { if (teamPicks[k] === 'A') cA++; if (teamPicks[k] === 'B') cB++; }
 
-  // Banner informativo se houver pré-seleção
   var preSelectBanner = '';
   if (preSelect && preSelect.stayTeam) {
     var stayLabel = preSelect.stayTeam === 'A' ? '🔵 Time A' : '🟠 Time B';
@@ -236,18 +251,75 @@ async function iniciarPartida(num) {
   loadAoVivo();
 }
 
-function renderPartidaAtiva(part, gols, tp) {
+// ============================================================
+// PARTIDA ATIVA: render com substituições
+// ============================================================
+function renderPartidaAtiva(part, gols, subs, tp) {
   var el = $('aoVivoContent');
+  subPendente = null; // limpar estado de sub pendente
 
-  function bTR(pl, tl) {
-    var po = sa(pl), h = '';
-    po.forEach(function(n) {
-      h += '<div class="team-player-row"><span class="team-player-name">' + dn(n) + '</span>' +
-        '<button class="goal-btn goal-btn-normal" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',false)">⚽</button>' +
-        '<button class="goal-btn goal-btn-contra" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',true)">⚽</button></div>';
+  // Mapear substituições por time
+  var subsA = subs.filter(function(s) { return s.time === 'A'; });
+  var subsB = subs.filter(function(s) { return s.time === 'B'; });
+
+  // Jogadores que saíram
+  var saiuA = {};
+  subsA.forEach(function(s) { saiuA[s.jogador_saiu] = true; });
+  var saiuB = {};
+  subsB.forEach(function(s) { saiuB[s.jogador_entrou] && false; saiuB[s.jogador_saiu] = true; });
+
+  // Jogadores que entraram (substitutos)
+  var entrouA = subsA.map(function(s) { return s.jogador_entrou; });
+  var entrouB = subsB.map(function(s) { return s.jogador_entrou; });
+
+  // Todos no time (originais + substitutos)
+  var allA = (part.time_a || []).concat(entrouA);
+  var allB = (part.time_b || []).concat(entrouB);
+
+  // Todos envolvidos em ambos os times (para filtrar disponíveis na sub)
+  var todosNoJogo = {};
+  allA.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
+  allB.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
+
+  function bTR(pl, substitutos, saiuMap, tl, subsCount) {
+    // pl = array original do time, substitutos = quem entrou
+    var allPlayers = sa(pl.concat(substitutos));
+    var h = '';
+    allPlayers.forEach(function(n) {
+      var isSaiu = saiuMap[n] === true;
+      var isSub = substitutos.indexOf(n) > -1;
+
+      var nameHtml = '<span class="team-player-name"';
+      if (isSaiu) nameHtml += ' style="text-decoration:line-through;opacity:0.5;"';
+      nameHtml += '>' + dn(n);
+      if (isSub) nameHtml += ' <span style="font-size:10px;color:var(--green);">↑ SUB</span>';
+      if (isSaiu) nameHtml += ' <span style="font-size:10px;color:var(--red);">↓ SAIU</span>';
+      nameHtml += '</span>';
+
+      if (isSaiu) {
+        // Jogador que saiu: sem botões
+        h += '<div class="team-player-row">' + nameHtml + '</div>';
+      } else {
+        // Jogador ativo: botões de gol + gol contra + substituição
+        var subBtn = '';
+        if (subsCount < 3) {
+          subBtn = '<button class="goal-btn goal-btn-sub" onclick="iniciarSub(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\')">🔄</button>';
+        }
+        h += '<div class="team-player-row">' + nameHtml +
+          '<button class="goal-btn goal-btn-normal" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',false)">⚽</button>' +
+          '<button class="goal-btn goal-btn-contra" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',true)">⚽</button>' +
+          subBtn + '</div>';
+      }
     });
     return h;
   }
+
+  var teamAHtml = bTR(part.time_a || [], entrouA, saiuA, 'A', subsA.length);
+  var teamBHtml = bTR(part.time_b || [], entrouB, saiuB, 'B', subsB.length);
+
+  // Sub counters
+  var subInfoA = subsA.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsA.length + '/3)</span>' : '';
+  var subInfoB = subsB.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsB.length + '/3)</span>' : '';
 
   var gl = '';
   if (gols.length > 0) {
@@ -261,16 +333,148 @@ function renderPartidaAtiva(part, gols, tp) {
     gl += '</div></div>';
   }
 
+  // Log de substituições
+  var subLog = '';
+  if (subs.length > 0) {
+    subLog = '<div class="card"><div class="card-title">🔄 Substituições</div><div class="gol-log">';
+    subs.forEach(function(s) {
+      var tc = s.time === 'A' ? 'var(--blue)' : 'var(--orange)';
+      var tn = s.time === 'A' ? 'A' : 'B';
+      subLog += '<div class="gol-item"><span style="color:' + tc + '">↓ ' + dn(s.jogador_saiu) + ' → ↑ ' + dn(s.jogador_entrou) + ' (' + tn + ')</span>' +
+        '<button class="gol-remove" onclick="rSub(' + s.id + ',\'' + part.partida_id + '\',\'' + s.jogador_entrou + '\',\'' + s.time + '\')">✕</button></div>';
+    });
+    subLog += '</div></div>';
+  }
+
+  // Painel de seleção de substituto (hidden por padrão)
+  var subPanel = '<div id="subPanel" style="display:none;"></div>';
+
   el.innerHTML =
     '<div class="scoreboard"><div class="scoreboard-match">Partida ' + part.numero + '</div>' +
     '<div class="scoreboard-score"><span class="score-a">' + part.placar_a + '</span><span class="score-x">×</span><span class="score-b">' + part.placar_b + '</span></div>' +
     '<div class="scoreboard-labels"><span>🔵 A</span><span>🟠 B</span></div></div>' +
-    '<div class="team-section"><div class="team-header team-header-a">🔵 Time A</div><div class="team-players">' + bTR(part.time_a, 'A') + '</div></div>' +
-    '<div class="team-section"><div class="team-header team-header-b">🟠 Time B</div><div class="team-players">' + bTR(part.time_b, 'B') + '</div></div>' +
+    '<div class="team-section"><div class="team-header team-header-a">🔵 Time A' + subInfoA + '</div><div class="team-players">' + teamAHtml + '</div></div>' +
+    '<div class="team-section"><div class="team-header team-header-b">🟠 Time B' + subInfoB + '</div><div class="team-players">' + teamBHtml + '</div></div>' +
+    subPanel +
     gl +
+    subLog +
     '<button class="btn btn-primary mt16" onclick="fPart(\'' + part.partida_id + '\')">✅ Finalizar ' + part.numero + '</button>';
+
+  // Guardar todosNoJogo para uso no painel de sub
+  window._todosNoJogo = todosNoJogo;
 }
 
+// ============================================================
+// SUBSTITUIÇÃO: iniciar (mostrar painel de seleção)
+// ============================================================
+function iniciarSub(partidaId, jogador, time) {
+  subPendente = { partida_id: partidaId, jogador: jogador, time: time };
+
+  // Jogadores disponíveis: presentes que NÃO estão em nenhum time
+  var todosNoJogo = window._todosNoJogo || {};
+  var disponiveis = aoVivoPresentes.filter(function(n) {
+    return !todosNoJogo[n];
+  });
+
+  var panel = $('subPanel');
+  if (disponiveis.length === 0) {
+    panel.innerHTML = '<div class="card" style="border-color:var(--gold);"><div class="card-title">🔄 Substituição</div>' +
+      '<div class="text-muted">Nenhum jogador disponível para substituir.</div>' +
+      '<button class="btn btn-secondary mt12" onclick="cancelarSub()">Cancelar</button></div>';
+    panel.style.display = 'block';
+    return;
+  }
+
+  var h = '<div class="card" style="border-color:var(--gold);">';
+  h += '<div class="card-title">🔄 Substituir ' + dn(jogador) + '</div>';
+  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:12px;">Selecione quem entra no lugar:</div>';
+  h += '<div class="selecao-container">';
+  sa(disponiveis).forEach(function(n) {
+    h += '<div class="chip" onclick="confirmarSub(\'' + n + '\')">' + dn(n) + '</div>';
+  });
+  h += '</div>';
+  h += '<button class="btn btn-secondary mt12" onclick="cancelarSub()">Cancelar</button>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelarSub() {
+  subPendente = null;
+  var panel = $('subPanel');
+  if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+}
+
+async function confirmarSub(jogadorEntrou) {
+  if (!subPendente) return;
+
+  var { error: e } = await sb.from('substituicoes').insert({
+    partida_id: subPendente.partida_id,
+    grupo_id: grupoAtual.id,
+    time: subPendente.time,
+    jogador_saiu: subPendente.jogador,
+    jogador_entrou: jogadorEntrou
+  });
+
+  if (e) { showToast(e.message, true); return; }
+
+  // Adicionar substituto ao array do time na tabela partidas
+  await addSubToTeam(subPendente.partida_id, subPendente.time, jogadorEntrou);
+
+  showToast('🔄 ' + dn(subPendente.jogador) + ' → ' + dn(jogadorEntrou));
+  logAsync(currentUser, 'SUB', subPendente.jogador + ' → ' + jogadorEntrou + ' T' + subPendente.time);
+  subPendente = null;
+  loadAoVivo();
+}
+
+// Adicionar substituto ao array time_a ou time_b na tabela partidas
+// para que vitória seja computada para todos
+async function addSubToTeam(partidaId, time, jogadorEntrou) {
+  var col = time === 'A' ? 'time_a' : 'time_b';
+  var { data: part } = await sb.from('partidas').select(col).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).single();
+  if (!part) return;
+  var arr = part[col] || [];
+  if (arr.indexOf(jogadorEntrou) === -1) {
+    arr.push(jogadorEntrou);
+    var upd = {};
+    upd[col] = arr;
+    await sb.from('partidas').update(upd).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id);
+  }
+}
+
+// Remover substituição (desfazer)
+async function rSub(subId, partidaId, jogadorEntrou, time) {
+  if (!confirm('Desfazer substituição?')) return;
+
+  // Remover da tabela substituicoes
+  await sb.from('substituicoes').delete().eq('id', subId).eq('grupo_id', grupoAtual.id);
+
+  // Remover jogador_entrou do array do time
+  await removeSubFromTeam(partidaId, time, jogadorEntrou);
+
+  showToast('Substituição desfeita.');
+  loadAoVivo();
+}
+
+async function removeSubFromTeam(partidaId, time, jogadorEntrou) {
+  var col = time === 'A' ? 'time_a' : 'time_b';
+  var { data: part } = await sb.from('partidas').select(col).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).single();
+  if (!part) return;
+  var arr = part[col] || [];
+  var idx = arr.indexOf(jogadorEntrou);
+  if (idx > -1) {
+    arr.splice(idx, 1);
+    var upd = {};
+    upd[col] = arr;
+    await sb.from('partidas').update(upd).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id);
+  }
+}
+
+// ============================================================
+// GOLS
+// ============================================================
 async function mGol(pid, j, t, gc) {
   var { data: gid } = await sb.rpc('next_gol_id_grupo', { p_grupo_id: grupoAtual.id });
   await sb.from('gols').insert({ gol_id: gid, partida_id: pid, pelada_id: peladaAtual.id, jogador: j, time: t, gol_contra: gc, grupo_id: grupoAtual.id });
