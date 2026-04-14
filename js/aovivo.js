@@ -133,7 +133,7 @@ function renderPartidaAtiva(part, gols, tp) {
     po.forEach(function(n) {
       h += '<div class="team-player-row"><span class="team-player-name">' + dn(n) + '</span>' +
         '<button class="goal-btn goal-btn-normal" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',false)">⚽</button>' +
-        '<button class="goal-btn goal-btn-contra" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',true)">🔄</button></div>';
+        '<button class="goal-btn goal-btn-contra" onclick="mGol(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\',true)">⚽</button></div>';
     });
     return h;
   }
@@ -144,7 +144,7 @@ function renderPartidaAtiva(part, gols, tp) {
     gols.forEach(function(g) {
       var tc = g.time === 'A' ? 'var(--blue)' : 'var(--orange)';
       var tn = g.time === 'A' ? 'A' : 'B';
-      var lb = g.gol_contra ? '🔄 GC ' + dn(g.jogador) + ' (' + tn + ')' : '⚽ ' + dn(g.jogador) + ' (' + tn + ')';
+      var lb = g.gol_contra ? '⚽ GC ' + dn(g.jogador) + ' (' + tn + ')' : '⚽ ' + dn(g.jogador) + ' (' + tn + ')';
       gl += '<div class="gol-item"><span style="color:' + tc + '">' + lb + '</span><button class="gol-remove" onclick="rGol(\'' + g.gol_id + '\',\'' + part.partida_id + '\')">✕</button></div>';
     });
     gl += '</div></div>';
