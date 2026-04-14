@@ -219,6 +219,11 @@ async function refreshResultadosData() {
   var partidas = results[2].data || [];
   var presenca = results[3].data || [];
 
+  // Filtrar apenas categorias válidas (ignorar Decepcao e Revelacao legados)
+  votos = votos.filter(function(v) {
+    return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
+  });
+
   resultCachedData = { votos: votos, gols: gols, partidas: partidas, presenca: presenca };
 
   renderVotacoesTab(votos);
@@ -233,9 +238,7 @@ function renderVotacoesTab(votos) {
   var pc = [
     { key: 'Goleiro', emoji: '🧤' },
     { key: 'MVP', emoji: '⭐' },
-    { key: 'Selecao', emoji: '🏅' },
-    { key: 'Decepcao', emoji: '😞' },
-    { key: 'Revelacao', emoji: '🌟' }
+    { key: 'Selecao', emoji: '🏅' }
   ];
   var h = '';
   pc.forEach(function(c) {
@@ -272,7 +275,7 @@ function renderVotacoesTab(votos) {
 }
 
 function buildRanking(v) {
-  var pr = ['Goleiro', 'MVP', 'Selecao', 'Decepcao', 'Revelacao'], r = {};
+  var pr = ['Goleiro', 'MVP', 'Selecao'], r = {};
   pr.forEach(function(p) {
     var c = {};
     v.forEach(function(x) { if (x.premio === p) c[x.votado] = (c[x.votado] || 0) + 1; });
@@ -301,7 +304,7 @@ function renderRankingTab(votos, gols, partidas, presenca) {
     { key: 'peladas', label: 'Pel', sortable: true },
     { key: 'mvp', label: 'MVP', sortable: true },
     { key: 'selecao', label: 'Sel', sortable: true },
-    { key: 'goleiro', label: 'Gol', sortable: true },
+    { key: 'goleiro', label: 'GK', sortable: true },
     { key: 'ptsPelada', label: 'Pts/P', sortable: true },
     { key: 'golsPelada', label: 'G/P', sortable: true },
     { key: 'vitPelada', label: 'V/P', sortable: true }
