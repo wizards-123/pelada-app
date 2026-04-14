@@ -101,6 +101,11 @@ async function loadPeladaDetalhe(p) {
   var gols = results[1].data || [];
   var votos = results[2].data || [];
 
+  // Filtrar apenas categorias válidas (ignorar Decepcao e Revelacao legados)
+  votos = votos.filter(function(v) {
+    return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
+  });
+
   renderPeladaDetalhe(p, partidas, gols, votos);
 }
 
