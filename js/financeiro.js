@@ -1,3 +1,4 @@
+// ============================================================
 // financeiro.js - Gestão financeira (config, mensalistas,
 //   pagamentos, despesas, balanço, devedores)
 // ============================================================
@@ -58,13 +59,11 @@ async function loadFinConfig() {
 
   var c = finConfig;
 
-  // Buscar jogadores e mensalistas para o bloco de mensalistas
   var { data: jg } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
   var jl = (jg || []).map(function(r) { return r.nome; });
   var { data: ms } = await sb.from('mensalistas').select('*').eq('grupo_id', grupoAtual.id);
   ms = ms || [];
 
-  // Bloco 1: Config Financeiro
   var h = '<div class="card"><div class="card-title">⚙️ Config Financeiro</div>' +
     '<div class="vote-category"><label>Mensalidade (R$)</label><input type="number" class="vote-select" id="finCfgM" value="' + (c ? c.valor_mensalidade : 150) + '" step="0.01"></div>' +
     '<div class="vote-category"><label>Diária (R$)</label><input type="number" class="vote-select" id="finCfgD" value="' + (c ? c.valor_diaria : 30) + '" step="0.01"></div>' +
@@ -72,10 +71,7 @@ async function loadFinConfig() {
     '<div class="vote-category"><label>Saldo Inicial (R$)</label><input type="number" class="vote-select" id="finCfgS" value="' + (c ? c.saldo_inicial : 0) + '" step="0.01"></div>' +
     '<button class="btn btn-primary" onclick="salvarFinConfig()">Salvar</button></div>';
 
-  // Bloco 2: Mensalistas
   h += '<div class="card"><div class="card-title">👥 Mensalistas</div>';
-
-  // Formulário novo mensalista
   h += '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">' +
     '<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;">➕ Novo Mensalista</div>' +
     '<div style="margin-bottom:8px;"><select class="vote-select" id="finNM"><option value="">Jogador...</option>';
@@ -84,7 +80,6 @@ async function loadFinConfig() {
     '<div class="vote-category"><label>A partir de</label><input type="month" class="vote-select" id="finMI" value="' + mesAtual() + '"></div>' +
     '<button class="btn btn-primary" onclick="addMens()">Adicionar</button></div>';
 
-  // Lista mensalistas ativos
   var at = ms.filter(function(m) { return !m.mes_fim || m.mes_fim >= mesAtual(); });
   h += '<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;">📋 Ativos (' + at.length + ')</div>';
   if (at.length === 0) h += '<div class="text-muted">Nenhum.</div>';
@@ -97,7 +92,6 @@ async function loadFinConfig() {
     });
   }
   h += '</div>';
-
   el.innerHTML = h;
 }
 
@@ -156,15 +150,12 @@ async function loadFinPagamentos() {
   var { data: pa } = await sb.from('presenca').select('jogador, pelada_id').eq('grupo_id', grupoAtual.id); pa = pa || [];
   var { data: pl } = await sb.from('peladas').select('id, data').eq('grupo_id', grupoAtual.id); pl = pl || [];
 
-  // Mensalistas do mês
   var mm = [];
   ms.forEach(function(m) { if (m.mes_inicio <= mes && (!m.mes_fim || m.mes_fim >= mes)) mm.push(m.jogador); });
 
-  // Peladas do mês
   var pdm = pl.filter(function(p) { return p.data && p.data.substring(0, 7) === mes; });
   var pids = pdm.map(function(p) { return p.id; });
 
-  // Diaristas (presentes não mensalistas)
   var dm = {};
   pa.forEach(function(pr) {
     if (pids.indexOf(pr.pelada_id) === -1) return;
@@ -173,17 +164,14 @@ async function loadFinPagamentos() {
     dm[pr.jogador].push(pr.pelada_id);
   });
 
-  // Map pagamentos
   var pm = {};
   pg.forEach(function(p) { pm[p.jogador + '|' + p.tipo + '|' + (p.pelada_id || '')] = p; });
 
-  // Seletor mês
   var mo = '';
   meses.forEach(function(m) { mo += '<option value="' + m + '"' + (m === mes ? ' selected' : '') + '>' + fmtMes(m) + '</option>'; });
 
   var h = '<div class="card"><div class="flex-between"><div class="card-title" style="margin-bottom:0;">💰 Pagamentos</div><select class="vote-select" style="width:140px;margin-bottom:0;" onchange="finMesSelecionado=this.value;loadFinPagamentos();">' + mo + '</select></div></div>';
 
-  // Mensalistas
   h += '<div class="card"><div class="card-title">📋 Mensalistas (' + mm.length + ')</div>';
   if (mm.length === 0) h += '<div class="text-muted">Nenhum neste mês.</div>';
   else {
@@ -204,7 +192,6 @@ async function loadFinPagamentos() {
   }
   h += '</div>';
 
-  // Diaristas
   var dk = Object.keys(dm);
   h += '<div class="card"><div class="card-title">🎫 Diaristas (' + dk.length + ')</div>';
   if (dk.length === 0) h += '<div class="text-muted">Nenhum neste mês.</div>';
@@ -338,6 +325,7 @@ async function remDesp(id) {
   showToast('Removida.');
   loadFinDespesas();
 }
+
 // --- BALANÇO ---
 async function loadFinBalanco() {
   var el = $('finTabBalanco');
@@ -348,7 +336,6 @@ async function loadFinBalanco() {
   var { data: pg } = await sb.from('pagamentos').select('*').eq('grupo_id', grupoAtual.id); pg = pg || [];
   var { data: ds } = await sb.from('despesas').select('*').eq('grupo_id', grupoAtual.id); ds = ds || [];
 
-  // Calcular dados por mês
   var dados = [];
   var sa2 = finConfig.saldo_inicial;
   meses.forEach(function(mes) {
@@ -374,14 +361,12 @@ async function loadFinBalanco() {
   var h = '<div class="card"><div class="card-title">📊 Balanço</div>' +
     '<div style="overflow-x:auto;"><table class="log-table" style="min-width:max-content;">';
 
-  // Header: vazio + meses
   h += '<tr><th style="position:sticky;left:0;z-index:2;background:var(--card-bg);min-width:100px;"></th>';
   dados.forEach(function(d) {
     h += '<th style="min-width:90px;text-align:right;white-space:nowrap;">' + fmtMes(d.mes) + '</th>';
   });
   h += '</tr>';
 
-  // Linhas de métricas
   linhas.forEach(function(ln) {
     h += '<tr><td style="position:sticky;left:0;z-index:1;background:var(--card-bg);font-weight:600;white-space:nowrap;">' + ln.label + '</td>';
     dados.forEach(function(d) {
@@ -400,12 +385,43 @@ async function loadFinBalanco() {
   el.innerHTML = h;
 }
 
+// --- COPIAR DEVEDORES ---
+function copiarDevedores() {
+  var rows = document.querySelectorAll('#finTabDevedores .log-table tr');
+  if (!rows || rows.length <= 1) { showToast('Nenhum devedor.', true); return; }
+
+  var totais = {};
+  for (var i = 1; i < rows.length; i++) {
+    var cells = rows[i].querySelectorAll('td');
+    if (cells.length < 6) continue;
+    var nome = cells[0].textContent.trim();
+    var pendente = cells[5].textContent.trim().replace('R$ ', '').replace(/\./g, '').replace(',', '.');
+    var val = parseFloat(pendente) || 0;
+    if (!totais[nome]) totais[nome] = 0;
+    totais[nome] += val;
+  }
+
+  var nomes = Object.keys(totais).sort(function(a, b) { return a.localeCompare(b); });
+  if (nomes.length === 0) { showToast('Nenhum devedor.', true); return; }
+
+  var gn = grupoAtual && grupoAtual.nome ? grupoAtual.nome : '';
+  var txt = '🚨 Devedores' + (gn ? ' ' + gn : '') + '\n\n';
+  nomes.forEach(function(n) {
+    txt += '• ' + n + ': ' + fmtBRL(totais[n]) + '\n';
+  });
+
+  navigator.clipboard.writeText(txt.trim()).then(function() {
+    showToast('Copiado!');
+  }).catch(function() {
+    showToast('Erro ao copiar.', true);
+  });
+}
+
 // --- DEVEDORES ---
 async function loadFinDevedores() {
   var el = $('finTabDevedores');
   showSkeleton('finTabDevedores');
 
-  // Para não-ADM, buscar config primeiro
   if (!isAdm) {
     var { data: cfg } = await sb.from('financeiro_config').select('*').eq('grupo_id', grupoAtual.id).single();
     finConfig = cfg;
@@ -425,7 +441,6 @@ async function loadFinDevedores() {
   var devs = [];
 
   meses.forEach(function(mes) {
-    // Mensalistas devendo
     ms.forEach(function(m) {
       if (m.mes_inicio <= mes && (!m.mes_fim || m.mes_fim >= mes)) {
         var k = m.jogador + '|mensalidade|' + mes + '|';
@@ -436,7 +451,6 @@ async function loadFinDevedores() {
       }
     });
 
-    // Diaristas devendo
     var pdm = pl.filter(function(p) { return p.data && p.data.substring(0, 7) === mes; });
     var pids = pdm.map(function(p) { return p.id; });
     var mmn = [];
@@ -460,7 +474,10 @@ async function loadFinDevedores() {
 
   devs.sort(function(a, b) { var c = a.jogador.localeCompare(b.jogador); return c !== 0 ? c : a.mes.localeCompare(b.mes); });
 
-  var h = '<div class="card"><div class="card-title">🚨 Devedores (' + devs.length + ')</div>';
+  var h = '<div class="card"><div class="flex-between"><div class="card-title" style="margin-bottom:0;">🚨 Devedores (' + devs.length + ')</div>' +
+    (devs.length > 0 ? '<button style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:transparent;color:var(--text1);" onclick="copiarDevedores()">📋 Copiar</button>' : '') +
+    '</div>';
+
   if (devs.length === 0) {
     h += '<div style="text-align:center;padding:20px;color:var(--green);font-size:14px;">✅ Tudo em dia!</div>';
   } else {
