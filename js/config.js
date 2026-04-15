@@ -64,7 +64,7 @@ function mesAtual() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 function fmtBRL(v) {
-  return 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function gerarMeses(ini, fim) {
   var ms = [], p = ini.split('-'), y = parseInt(p[0]), m = parseInt(p[1]);
