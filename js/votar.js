@@ -1,23 +1,62 @@
 // ============================================================
-// votar.js - Sistema de votação (Seleção + Goleiro + MVP)
+// votar.js - Sistema de votação (Seleção + Goleiro + MVP) + Notas
 // ============================================================
 
 var votSelecaoSelecionados = []; // nomes dos 5 selecionados
 var votGoleiro = null;           // nome do goleiro escolhido (entre os 5)
 var votMvp = null;               // nome do MVP escolhido (entre os 5)
+var votarSubTab = 'categorias';  // 'categorias' ou 'notas'
+var notasLocais = {};            // { nomeJogador: nota } cache local enquanto edita
 
 async function loadVotar() {
   var el = $('votarContent');
   if (!peladaAtual) { el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada.</div>'; return; }
+
+  // Render sub-tabs sempre (Notas não depende de votação aberta)
+  var h = '';
+  h += '<div class="tabs votar-sub-tabs" id="votarSubTabs">';
+  h += '<button class="tab' + (votarSubTab === 'categorias' ? ' active' : '') + '" onclick="switchVotarTab(\'categorias\')">🏅 Categorias</button>';
+  h += '<button class="tab' + (votarSubTab === 'notas' ? ' active' : '') + '" onclick="switchVotarTab(\'notas\')">⭐ Notas</button>';
+  h += '</div>';
+  h += '<div id="votarTabContent"></div>';
+  el.innerHTML = h;
+
+  if (votarSubTab === 'categorias') {
+    await loadVotarCategorias();
+  } else {
+    await loadVotarNotas();
+  }
+}
+
+function switchVotarTab(tab) {
+  votarSubTab = tab;
+  // Atualizar visual das tabs sem recarregar tudo
+  var tabs = document.querySelectorAll('#votarSubTabs .tab');
+  tabs.forEach(function(t) { t.classList.remove('active'); });
+  if (tab === 'categorias') tabs[0].classList.add('active');
+  else tabs[1].classList.add('active');
+
+  var content = $('votarTabContent');
+  content.innerHTML = '<div class="skeleton"></div>';
+
+  if (tab === 'categorias') {
+    loadVotarCategorias();
+  } else {
+    loadVotarNotas();
+  }
+}
+
+// ============================================================
+// TAB: CATEGORIAS (código original)
+// ============================================================
+async function loadVotarCategorias() {
+  var el = $('votarTabContent');
   if (!peladaAtual.votacao_aberta) { el.innerHTML = '<div class="empty-state"><span class="emoji">🔒</span>Votação fechada.</div>'; return; }
 
-  showSkeleton('votarContent');
+  el.innerHTML = '<div class="skeleton"></div>';
 
-  // Buscar presentes e votos existentes em paralelo
   var presPromise = sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   var votosPromise = sb.from('votos').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('votante', currentUser);
-
-  // Buscar métricas para a sub-seção
   var golsPromise = sb.from('gols').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   var partidasPromise = sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('status', 'Finalizada');
 
@@ -30,7 +69,6 @@ async function loadVotar() {
 
   var pres = pr ? pr.map(function(r) { return r.jogador; }) : [];
 
-  // Reconstruir votos anteriores (se existem)
   var va = null;
   if (ov && ov.length > 0) {
     va = { goleiro: null, mvp: null, selecao: [] };
@@ -45,7 +83,7 @@ async function loadVotar() {
 }
 
 // ============================================================
-// RENDER FORM
+// RENDER FORM (Categorias)
 // ============================================================
 function renderVoteForm(pres, va, gols, partidas) {
   votSelecaoSelecionados = [];
@@ -53,12 +91,10 @@ function renderVoteForm(pres, va, gols, partidas) {
   votMvp = null;
 
   var isEdit = va !== null;
-  var el = $('votarContent');
+  var el = $('votarTabContent');
   var po = sa(pres);
 
-  // Restaurar votos anteriores
   if (isEdit) {
-    // Seleção = goleiro + jogadores de linha
     var allSel = va.selecao.slice();
     if (va.goleiro && allSel.indexOf(va.goleiro) === -1) allSel.push(va.goleiro);
     votSelecaoSelecionados = allSel;
@@ -77,12 +113,10 @@ function renderVoteForm(pres, va, gols, partidas) {
   h += eb;
   h += '<div class="section-desc">Pelada: ' + peladaLabel(peladaAtual) + ' (' + df + ')</div>';
 
-  // --- Seleção da Rodada ---
   h += '<div class="card">';
   h += '<div class="card-title">🏅 Seleção da Rodada</div>';
   h += '<div style="font-size:12px;color:var(--text2);margin-bottom:12px;">Selecione 5 jogadores. Depois marque quem é o 🧤 Goleiro e quem é o ⭐ MVP.</div>';
 
-  // Chips de seleção
   h += '<div class="selecao-container" id="votSelecaoContainer">';
   po.forEach(function(n) {
     var isSelf = (n === currentUser);
@@ -97,11 +131,9 @@ function renderVoteForm(pres, va, gols, partidas) {
   h += '</div>';
   h += '<div class="selecao-counter mt8">Selecionados: <span id="votSelCount">' + votSelecaoSelecionados.length + '</span>/5</div>';
 
-  // Área de roles (goleiro + MVP) - aparece quando tem selecionados
   h += '<div id="votRolesSection" style="' + (votSelecaoSelecionados.length > 0 ? '' : 'display:none;') + '">';
   h += '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">';
 
-  // Goleiro
   h += '<div style="margin-bottom:16px;">';
   h += '<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;">🧤 GOLEIRO <span style="font-weight:400;font-size:11px;color:var(--text3);">(entre os selecionados)</span></div>';
   h += '<div class="selecao-container" id="votGoleiroContainer">';
@@ -109,7 +141,6 @@ function renderVoteForm(pres, va, gols, partidas) {
   h += '</div>';
   h += '</div>';
 
-  // MVP
   h += '<div>';
   h += '<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;">⭐ MVP <span style="font-weight:400;font-size:11px;color:var(--text3);">(entre os selecionados)</span></div>';
   h += '<div class="selecao-container" id="votMvpContainer">';
@@ -123,7 +154,6 @@ function renderVoteForm(pres, va, gols, partidas) {
   h += '<button class="btn btn-primary mt16" id="votSubmitBtn" onclick="submitVotos()">' + (isEdit ? 'Atualizar Votos' : 'Enviar Votos') + '</button>';
   h += '</div>';
 
-  // --- Sub-seção de métricas ---
   h += renderVotarMetricas(pres, gols, partidas);
 
   el.innerHTML = h;
@@ -152,14 +182,12 @@ function buildRoleChips(role) {
 // ============================================================
 function votToggleSelecao(chip) {
   var n = chip.getAttribute('data-name');
-  if (n === currentUser) return; // self-vote bloqueado
+  if (n === currentUser) return;
 
   var idx = votSelecaoSelecionados.indexOf(n);
   if (idx > -1) {
-    // Remover
     votSelecaoSelecionados.splice(idx, 1);
     chip.classList.remove('selected');
-    // Se era goleiro ou MVP, limpar
     if (votGoleiro === n) votGoleiro = null;
     if (votMvp === n) votMvp = null;
   } else {
@@ -168,14 +196,12 @@ function votToggleSelecao(chip) {
     chip.classList.add('selected');
   }
 
-  // Atualizar counter
   $('votSelCount').textContent = votSelecaoSelecionados.length;
 
-  // Atualizar disabled state
   var chips = document.querySelectorAll('#votSelecaoContainer .chip');
   chips.forEach(function(ch) {
     var nm = ch.getAttribute('data-name');
-    if (nm === currentUser) return; // sempre disabled
+    if (nm === currentUser) return;
     if (votSelecaoSelecionados.length >= 5 && !ch.classList.contains('selected')) {
       ch.classList.add('disabled');
     } else {
@@ -183,7 +209,6 @@ function votToggleSelecao(chip) {
     }
   });
 
-  // Atualizar seção de roles
   var rolesSection = $('votRolesSection');
   if (votSelecaoSelecionados.length > 0) {
     rolesSection.style.display = '';
@@ -191,7 +216,6 @@ function votToggleSelecao(chip) {
     rolesSection.style.display = 'none';
   }
 
-  // Rebuild role chips
   $('votGoleiroContainer').innerHTML = buildRoleChips('goleiro');
   $('votMvpContainer').innerHTML = buildRoleChips('mvp');
 }
@@ -220,23 +244,15 @@ async function submitVotos() {
   if (!votGoleiro) { showToast('Selecione o goleiro!', true); return; }
   if (!votMvp) { showToast('Selecione o MVP!', true); return; }
 
-  // Validação extra: goleiro e MVP devem estar entre os selecionados
   if (votSelecaoSelecionados.indexOf(votGoleiro) === -1) { showToast('Goleiro deve estar entre os selecionados!', true); return; }
   if (votSelecaoSelecionados.indexOf(votMvp) === -1) { showToast('MVP deve estar entre os selecionados!', true); return; }
 
-  // Deletar votos anteriores
   await sb.from('votos').delete().eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).eq('votante', currentUser);
 
-  // Montar rows
   var rows = [];
-
-  // Goleiro
   rows.push({ pelada_id: peladaAtual.id, votante: currentUser, premio: 'Goleiro', votado: votGoleiro, grupo_id: grupoAtual.id });
-
-  // MVP
   rows.push({ pelada_id: peladaAtual.id, votante: currentUser, premio: 'MVP', votado: votMvp, grupo_id: grupoAtual.id });
 
-  // Seleção (os 4 jogadores de linha, ou seja, os selecionados exceto o goleiro)
   votSelecaoSelecionados.forEach(function(n) {
     if (n !== votGoleiro) {
       rows.push({ pelada_id: peladaAtual.id, votante: currentUser, premio: 'Selecao', votado: n, grupo_id: grupoAtual.id });
@@ -248,7 +264,7 @@ async function submitVotos() {
 
   showToast('Votos registrados! ⚽');
   logAsync(currentUser, 'VOTO', peladaAtual.id);
-  loadVotar();
+  loadVotarCategorias();
 }
 
 // ============================================================
@@ -263,25 +279,16 @@ function renderVotarMetricas(pres, gols, partidas) {
     return h;
   }
 
-  // Calcular gols por jogador (normais e contra separados)
-  var golsMap = {}; // { nome: { normais: N, contra: N } }
-  pres.forEach(function(n) {
-    golsMap[n] = { normais: 0, contra: 0 };
-  });
-
+  var golsMap = {};
+  pres.forEach(function(n) { golsMap[n] = { normais: 0, contra: 0 }; });
   gols.forEach(function(g) {
     if (!golsMap[g.jogador]) golsMap[g.jogador] = { normais: 0, contra: 0 };
-    if (g.gol_contra) {
-      golsMap[g.jogador].contra += 1;
-    } else {
-      golsMap[g.jogador].normais += 1;
-    }
+    if (g.gol_contra) { golsMap[g.jogador].contra += 1; }
+    else { golsMap[g.jogador].normais += 1; }
   });
 
-  // Calcular vitórias por jogador
   var vitMap = {};
   pres.forEach(function(n) { vitMap[n] = 0; });
-
   partidas.forEach(function(p) {
     if (!p.vencedor || p.vencedor === 'Empate' || p.vencedor === '') return;
     var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
@@ -293,7 +300,6 @@ function renderVotarMetricas(pres, gols, partidas) {
     });
   });
 
-  // Montar lista ordenada por gols normais desc, depois vitórias desc
   var playerList = sa(pres).map(function(n) {
     var g = golsMap[n] || { normais: 0, contra: 0 };
     var v = vitMap[n] || 0;
@@ -327,7 +333,6 @@ function renderVotarMetricas(pres, gols, partidas) {
 
   h += '</tbody></table></div>';
 
-  // Resumo rápido
   var totalGols = gols.filter(function(g) { return !g.gol_contra; }).length;
   var totalGC = gols.filter(function(g) { return g.gol_contra; }).length;
   var totalPartidas = partidas.length;
@@ -343,4 +348,185 @@ function renderVotarMetricas(pres, gols, partidas) {
 
   h += '</div>';
   return h;
+}
+
+// ============================================================
+// TAB: NOTAS (novo sistema de avaliação)
+// ============================================================
+async function loadVotarNotas() {
+  var el = $('votarTabContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+
+  // Buscar em paralelo: todos jogadores do grupo, mensalistas ativos, notas existentes do avaliador, todas as notas (para médias)
+  var jogPromise = sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id);
+  var mensPromise = sb.from('mensalistas').select('jogador').eq('grupo_id', grupoAtual.id).is('mes_fim', null);
+  var minhasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id).eq('avaliador', currentUser);
+  var todasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id);
+
+  var results = await Promise.all([jogPromise, mensPromise, minhasNotasPromise, todasNotasPromise]);
+
+  var jogadores = results[0].data ? results[0].data.map(function(j) { return j.nome; }) : [];
+  var mensalistas = results[1].data ? results[1].data.map(function(m) { return m.jogador; }) : [];
+  var minhasNotas = results[2].data || [];
+  var todasNotas = results[3].data || [];
+
+  // Construir mapa de notas existentes do avaliador
+  notasLocais = {};
+  minhasNotas.forEach(function(n) { notasLocais[n.avaliado] = n.nota; });
+
+  // Construir mapa de médias
+  var mediasMap = {};   // { nome: { soma, count } }
+  todasNotas.forEach(function(n) {
+    if (!mediasMap[n.avaliado]) mediasMap[n.avaliado] = { soma: 0, count: 0 };
+    mediasMap[n.avaliado].soma += n.nota;
+    mediasMap[n.avaliado].count += 1;
+  });
+
+  // Separar mensais e avulsos (excluindo o próprio jogador)
+  var mensaisSet = {};
+  mensalistas.forEach(function(m) { mensaisSet[m] = true; });
+
+  var listaMensais = [];
+  var listaAvulsos = [];
+  jogadores.forEach(function(nome) {
+    if (nome === currentUser) return; // não pode dar nota para si mesmo
+    if (mensaisSet[nome]) listaMensais.push(nome);
+    else listaAvulsos.push(nome);
+  });
+
+  listaMensais.sort(function(a, b) { return a.localeCompare(b); });
+  listaAvulsos.sort(function(a, b) { return a.localeCompare(b); });
+
+  renderNotasForm(listaMensais, listaAvulsos, mediasMap);
+}
+
+function renderNotasForm(mensais, avulsos, mediasMap) {
+  var el = $('votarTabContent');
+  var h = '';
+
+  h += '<div class="section-desc">Dê notas de 0 a 10 para cada jogador. As notas serão usadas para equilibrar a divisão de times.</div>';
+
+  // Contagem de notas dadas
+  var totalJogadores = mensais.length + avulsos.length;
+  var totalAvaliados = 0;
+  mensais.concat(avulsos).forEach(function(n) {
+    if (notasLocais[n] !== undefined) totalAvaliados++;
+  });
+
+  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:16px;">Avaliados: <span style="font-weight:600;color:var(--green);">' + totalAvaliados + '</span>/' + totalJogadores + '</div>';
+
+  // Mensais
+  if (mensais.length > 0) {
+    h += '<div class="card">';
+    h += '<div class="card-title">📋 Mensalistas</div>';
+    mensais.forEach(function(nome) {
+      h += buildNotaRow(nome, mediasMap);
+    });
+    h += '</div>';
+  }
+
+  // Avulsos
+  if (avulsos.length > 0) {
+    h += '<div class="card">';
+    h += '<div class="card-title">🏃 Avulsos</div>';
+    avulsos.forEach(function(nome) {
+      h += buildNotaRow(nome, mediasMap);
+    });
+    h += '</div>';
+  }
+
+  if (totalJogadores === 0) {
+    h += '<div class="empty-state"><span class="emoji">📭</span>Nenhum jogador cadastrado no grupo.</div>';
+  }
+
+  el.innerHTML = h;
+
+  // Sincronizar visual dos sliders que já têm nota
+  mensais.concat(avulsos).forEach(function(nome) {
+    var slider = document.querySelector('.nota-slider[data-jogador="' + nome + '"]');
+    if (slider) updateSliderVisual(slider);
+  });
+}
+
+function buildNotaRow(nome, mediasMap) {
+  var notaAtual = notasLocais[nome];
+  var temNota = notaAtual !== undefined;
+  var valorSlider = temNota ? notaAtual : 5;
+  var media = mediasMap[nome];
+  var mediaStr = media ? (media.soma / media.count).toFixed(1) : '—';
+  var mediaCount = media ? media.count : 0;
+
+  var h = '';
+  h += '<div class="nota-jogador-row">';
+  h += '<div class="nota-jogador-info">';
+  h += '<span class="nota-jogador-nome">' + dn(nome) + '</span>';
+  h += '<span class="nota-jogador-media" title="Média de ' + mediaCount + ' avaliação(ões)">Média: ' + mediaStr + '</span>';
+  h += '</div>';
+  h += '<div class="nota-slider-wrap">';
+  h += '<input type="range" min="0" max="10" step="1" value="' + valorSlider + '" class="nota-slider' + (temNota ? ' has-value' : '') + '" data-jogador="' + nome + '" oninput="onNotaSliderInput(this)" onchange="onNotaSliderChange(this)">';
+  h += '<div class="nota-slider-labels"><span>0</span><span class="nota-valor-display" id="notaVal_' + nome.replace(/[^a-zA-Z0-9]/g, '_') + '">' + (temNota ? notaAtual : '—') + '</span><span>10</span></div>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+function updateSliderVisual(slider) {
+  var val = parseInt(slider.value);
+  var pct = (val / 10) * 100;
+  // Gerar cor do verde (nota alta) ao vermelho (nota baixa)
+  var hue = (val / 10) * 120; // 0=red, 120=green
+  slider.style.setProperty('--slider-pct', pct + '%');
+  slider.style.setProperty('--slider-hue', hue);
+}
+
+function onNotaSliderInput(slider) {
+  var nome = slider.getAttribute('data-jogador');
+  var val = parseInt(slider.value);
+  var safeId = nome.replace(/[^a-zA-Z0-9]/g, '_');
+  var display = $('notaVal_' + safeId);
+  if (display) display.textContent = val;
+  slider.classList.add('has-value');
+  updateSliderVisual(slider);
+}
+
+async function onNotaSliderChange(slider) {
+  var nome = slider.getAttribute('data-jogador');
+  var novaNota = parseInt(slider.value);
+  var notaAnterior = notasLocais[nome];
+
+  // Se a nota não mudou, não faz nada
+  if (notaAnterior !== undefined && notaAnterior === novaNota) return;
+
+  // Upsert na tabela principal
+  var { error: e } = await sb.from('notas_jogadores').upsert({
+    grupo_id: grupoAtual.id,
+    avaliador: currentUser,
+    avaliado: nome,
+    nota: novaNota,
+    atualizado_em: new Date().toISOString()
+  }, { onConflict: 'grupo_id,avaliador,avaliado' });
+
+  if (e) { showToast('Erro ao salvar nota: ' + e.message, true); return; }
+
+  // Inserir histórico
+  await sb.from('notas_jogadores_historico').insert({
+    grupo_id: grupoAtual.id,
+    avaliador: currentUser,
+    avaliado: nome,
+    nota_anterior: notaAnterior !== undefined ? notaAnterior : null,
+    nota_nova: novaNota
+  });
+
+  // Atualizar cache local
+  notasLocais[nome] = novaNota;
+
+  // Atualizar contador
+  var totalJogadores = document.querySelectorAll('.nota-slider').length;
+  var totalAvaliados = 0;
+  document.querySelectorAll('.nota-slider.has-value').forEach(function() { totalAvaliados++; });
+
+  // Feedback sutil
+  showToast(dn(nome) + ': nota ' + novaNota + ' ✓');
+
+  logAsync(currentUser, 'NOTA', nome + ' = ' + novaNota);
 }
