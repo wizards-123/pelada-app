@@ -30,7 +30,6 @@ async function loadVotar() {
 
 function switchVotarTab(tab) {
   votarSubTab = tab;
-  // Atualizar visual das tabs sem recarregar tudo
   var tabs = document.querySelectorAll('#votarSubTabs .tab');
   tabs.forEach(function(t) { t.classList.remove('active'); });
   if (tab === 'categorias') tabs[0].classList.add('active');
@@ -351,17 +350,17 @@ function renderVotarMetricas(pres, gols, partidas) {
 }
 
 // ============================================================
-// TAB: NOTAS (novo sistema de avaliação)
+// TAB: NOTAS (sistema de avaliação)
 // ============================================================
 async function loadVotarNotas() {
   var el = $('votarTabContent');
   el.innerHTML = '<div class="skeleton"></div>';
 
-  // Buscar em paralelo: todos jogadores do grupo, mensalistas ativos, notas existentes do avaliador, todas as notas (para médias)
+  // Buscar em paralelo: jogadores, mensalistas ativos, minhas notas, todas as notas
   var jogPromise = sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id);
   var mensPromise = sb.from('mensalistas').select('jogador').eq('grupo_id', grupoAtual.id).is('mes_fim', null);
   var minhasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id).eq('avaliador', currentUser);
-  var todasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id);
+  var todasNotasPromise = sb.from('notas_jogadores').select('avaliador, avaliado, nota').eq('grupo_id', grupoAtual.id);
 
   var results = await Promise.all([jogPromise, mensPromise, minhasNotasPromise, todasNotasPromise]);
 
@@ -370,12 +369,12 @@ async function loadVotarNotas() {
   var minhasNotas = results[2].data || [];
   var todasNotas = results[3].data || [];
 
-  // Construir mapa de notas existentes do avaliador
+  // Mapa de notas do avaliador
   notasLocais = {};
   minhasNotas.forEach(function(n) { notasLocais[n.avaliado] = n.nota; });
 
-  // Construir mapa de médias
-  var mediasMap = {};   // { nome: { soma, count } }
+  // Mapa de médias
+  var mediasMap = {};
   todasNotas.forEach(function(n) {
     if (!mediasMap[n.avaliado]) mediasMap[n.avaliado] = { soma: 0, count: 0 };
     mediasMap[n.avaliado].soma += n.nota;
@@ -389,7 +388,7 @@ async function loadVotarNotas() {
   var listaMensais = [];
   var listaAvulsos = [];
   jogadores.forEach(function(nome) {
-    if (nome === currentUser) return; // não pode dar nota para si mesmo
+    if (nome === currentUser) return;
     if (mensaisSet[nome]) listaMensais.push(nome);
     else listaAvulsos.push(nome);
   });
@@ -397,10 +396,10 @@ async function loadVotarNotas() {
   listaMensais.sort(function(a, b) { return a.localeCompare(b); });
   listaAvulsos.sort(function(a, b) { return a.localeCompare(b); });
 
-  renderNotasForm(listaMensais, listaAvulsos, mediasMap);
+  renderNotasForm(listaMensais, listaAvulsos, mediasMap, todasNotas);
 }
 
-function renderNotasForm(mensais, avulsos, mediasMap) {
+function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
   var el = $('votarTabContent');
   var h = '';
 
@@ -439,6 +438,11 @@ function renderNotasForm(mensais, avulsos, mediasMap) {
     h += '<div class="empty-state"><span class="emoji">📭</span>Nenhum jogador cadastrado no grupo.</div>';
   }
 
+  // Bloco ADM: Notas Detalhadas
+  if (isAdm && todasNotas && todasNotas.length > 0) {
+    h += renderNotasDetalhadasAdm(todasNotas);
+  }
+
   el.innerHTML = h;
 
   // Sincronizar visual dos sliders que já têm nota
@@ -455,6 +459,7 @@ function buildNotaRow(nome, mediasMap) {
   var media = mediasMap[nome];
   var mediaStr = media ? (media.soma / media.count).toFixed(1) : '—';
   var mediaCount = media ? media.count : 0;
+  var safeId = nome.replace(/[^a-zA-Z0-9]/g, '_');
 
   var h = '';
   h += '<div class="nota-jogador-row">';
@@ -464,16 +469,46 @@ function buildNotaRow(nome, mediasMap) {
   h += '</div>';
   h += '<div class="nota-slider-wrap">';
   h += '<input type="range" min="0" max="10" step="1" value="' + valorSlider + '" class="nota-slider' + (temNota ? ' has-value' : '') + '" data-jogador="' + nome + '" oninput="onNotaSliderInput(this)" onchange="onNotaSliderChange(this)">';
-  h += '<div class="nota-slider-labels"><span>0</span><span class="nota-valor-display" id="notaVal_' + nome.replace(/[^a-zA-Z0-9]/g, '_') + '">' + (temNota ? notaAtual : '—') + '</span><span>10</span></div>';
+  h += '<div class="nota-slider-labels"><span>0</span><span class="nota-valor-display" id="notaVal_' + safeId + '">' + (temNota ? notaAtual : '—') + '</span><span>10</span></div>';
   h += '</div>';
   h += '</div>';
   return h;
 }
 
+// ============================================================
+// NOTAS DETALHADAS (ADM)
+// ============================================================
+function renderNotasDetalhadasAdm(todasNotas) {
+  // Ordenar por avaliado (alfabético), depois avaliador (alfabético)
+  var sorted = todasNotas.slice().sort(function(a, b) {
+    var cmp = a.avaliado.localeCompare(b.avaliado);
+    if (cmp !== 0) return cmp;
+    return a.avaliador.localeCompare(b.avaliador);
+  });
+
+  var h = '<div class="card mt16">';
+  h += '<div class="card-title">🔍 Notas Detalhadas (ADM)</div>';
+  h += '<div style="overflow-x:auto;">';
+  h += '<table class="log-table">';
+  h += '<tr><th>Avaliado</th><th>Avaliador</th><th>Nota</th></tr>';
+  sorted.forEach(function(n) {
+    h += '<tr>';
+    h += '<td>' + dn(n.avaliado) + '</td>';
+    h += '<td>' + dn(n.avaliador) + '</td>';
+    h += '<td style="font-weight:600;">' + n.nota + '</td>';
+    h += '</tr>';
+  });
+  h += '</table></div>';
+  h += '</div>';
+  return h;
+}
+
+// ============================================================
+// SLIDER HELPERS
+// ============================================================
 function updateSliderVisual(slider) {
   var val = parseInt(slider.value);
   var pct = (val / 10) * 100;
-  // Gerar cor do verde (nota alta) ao vermelho (nota baixa)
   var hue = (val / 10) * 120; // 0=red, 120=green
   slider.style.setProperty('--slider-pct', pct + '%');
   slider.style.setProperty('--slider-hue', hue);
@@ -519,11 +554,6 @@ async function onNotaSliderChange(slider) {
 
   // Atualizar cache local
   notasLocais[nome] = novaNota;
-
-  // Atualizar contador
-  var totalJogadores = document.querySelectorAll('.nota-slider').length;
-  var totalAvaliados = 0;
-  document.querySelectorAll('.nota-slider.has-value').forEach(function() { totalAvaliados++; });
 
   // Feedback sutil
   showToast(dn(nome) + ': nota ' + novaNota + ' ✓');
