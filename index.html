@@ -184,18 +184,18 @@
   .role-chip.selected{font-weight:600}
   .goal-btn-sub{background:var(--purpleGlow);color:var(--purple)}
   .goal-btn-sub:active{background:var(--purple);color:#fff}
-  /* ===== NOTAS: SISTEMA DE AVALIAÇÃO ===== */
-  .nota-jogador-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid rgba(36,48,73,0.3)}
+/* ===== NOTAS: SISTEMA DE AVALIAÇÃO ===== */
+  .nota-jogador-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid rgba(36,48,73,0.3)}
   .nota-jogador-row:last-child{border-bottom:none}
-  .nota-jogador-info{display:flex;flex-direction:column;gap:2px;min-width:0;flex-shrink:0;max-width:40%}
-  .nota-jogador-nome{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .nota-jogador-media{font-size:11px;color:var(--text3)}
+  .nota-jogador-info{width:90px;flex-shrink:0}
+  .nota-jogador-nome{display:block;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nota-jogador-media{display:block;font-size:11px;color:var(--text3);margin-top:2px}
   .nota-slider-wrap{flex:1;min-width:0}
   .nota-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;outline:none;cursor:pointer;background:linear-gradient(to right,hsl(var(--slider-hue,60),70%,45%) var(--slider-pct,50%),var(--bg3) var(--slider-pct,50%))}
   .nota-slider:not(.has-value){opacity:0.35}
   .nota-slider.has-value{opacity:1}
-  .nota-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
-  .nota-slider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
+  .nota-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
+  .nota-slider::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
   .nota-slider-labels{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:var(--text3)}
   .nota-valor-display{font-size:14px;font-weight:700;color:var(--text)}
   html.light .nota-jogador-row{border-bottom-color:rgba(209,217,230,0.5)}
