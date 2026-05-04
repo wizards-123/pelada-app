@@ -234,7 +234,7 @@ function pickPlayer(c) {
 }
 
 // ============================================================
-// SORTEAR TIMES: algoritmo greedy por menor média com jitter
+// SORTEAR TIMES: força bruta com amostragem (otimiza médias iguais)
 // ============================================================
 
 function calcNumTimes(n) {
@@ -243,56 +243,109 @@ function calcNumTimes(n) {
   return 5;
 }
 
-function distribuirJogadores(jogadores, numTimes) {
-  // Greedy: para cada jogador (do melhor ao pior),
-  // atribui ao time elegível com menor média atual.
-  // Isso equilibra médias mesmo com tamanhos desiguais (ex: 5+5+4).
-
-  var totalJogadores = jogadores.length;
-  var maxPorTime = Math.ceil(totalJogadores / numTimes);
-  var timesComMax = totalJogadores % numTimes; // quantos times terão maxPorTime
-  if (timesComMax === 0) timesComMax = numTimes;
-
-  // Capacidade de cada time
-  var capacidade = [];
-  for (var i = 0; i < numTimes; i++) {
-    capacidade.push(i < timesComMax ? maxPorTime : maxPorTime - 1);
+// Fisher-Yates shuffle (in-place)
+function shuffleArray(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
   }
+  return arr;
+}
+
+// Gera uma distribuição aleatória e retorna a diferença máxima entre médias
+function gerarDistribuicaoAleatoria(ratings, numTimes, tamanhos) {
+  // ratings = array de números (rating de cada jogador), já embaralhado
+  // tamanhos = array com tamanho de cada time [5,5,4]
+  // Retorna { indices: array de arrays de índices, diffMedia: number }
 
   var times = [];
-  var somaTimes = [];
-  for (var i = 0; i < numTimes; i++) {
-    times.push([]);
-    somaTimes.push(0);
+  var idx = 0;
+  for (var t = 0; t < numTimes; t++) {
+    var timeIndices = [];
+    for (var j = 0; j < tamanhos[t]; j++) {
+      timeIndices.push(idx);
+      idx++;
+    }
+    times.push(timeIndices);
   }
 
-  for (var i = 0; i < jogadores.length; i++) {
-    var j = jogadores[i];
-
-    // Encontrar time elegível (não cheio) com menor média
-    var bestIdx = -1;
-    var bestMedia = Infinity;
-
-    for (var t = 0; t < numTimes; t++) {
-      if (times[t].length >= capacidade[t]) continue; // time cheio
-
-      var mediaAtual;
-      if (times[t].length === 0) {
-        mediaAtual = 0;
-      } else {
-        mediaAtual = somaTimes[t] / times[t].length;
-      }
-
-      // Desempate: se médias iguais, preferir time com menos jogadores
-      if (mediaAtual < bestMedia || (mediaAtual === bestMedia && (bestIdx === -1 || times[t].length < times[bestIdx].length))) {
-        bestMedia = mediaAtual;
-        bestIdx = t;
-      }
+  // Calcular média de cada time
+  var maxMedia = -Infinity;
+  var minMedia = Infinity;
+  for (var t = 0; t < numTimes; t++) {
+    var soma = 0;
+    for (var j = 0; j < times[t].length; j++) {
+      soma += ratings[times[t][j]];
     }
+    var media = soma / times[t].length;
+    if (media > maxMedia) maxMedia = media;
+    if (media < minMedia) minMedia = media;
+  }
 
-    if (bestIdx === -1) bestIdx = 0; // fallback (não deve ocorrer)
-    times[bestIdx].push(j);
-    somaTimes[bestIdx] += j.ratingJitter;
+  return { indices: times, diffMedia: maxMedia - minMedia };
+}
+
+function distribuirJogadoresBruteForce(jogadores, numTimes) {
+  var n = jogadores.length;
+
+  // Calcular tamanhos dos times
+  var base = Math.floor(n / numTimes);
+  var extras = n % numTimes;
+  var tamanhos = [];
+  for (var i = 0; i < numTimes; i++) {
+    tamanhos.push(i < extras ? base + 1 : base);
+  }
+
+  // Array de ratings para cálculo rápido
+  var ratings = jogadores.map(function(j) { return j.rating; });
+
+  // Array de índices para embaralhar
+  var indices = [];
+  for (var i = 0; i < n; i++) indices.push(i);
+
+  var melhorDiff = Infinity;
+  var melhorOrdem = indices.slice();
+  var MAX_ITERACOES = 100000;
+  var EARLY_EXIT = 0.1; // diferença de média aceitável para parar
+
+  for (var iter = 0; iter < MAX_ITERACOES; iter++) {
+    shuffleArray(indices);
+
+    // Calcular diff inline (sem criar objetos, para performance)
+    var maxMedia = -Infinity;
+    var minMedia = Infinity;
+    var pos = 0;
+    for (var t = 0; t < numTimes; t++) {
+      var soma = 0;
+      for (var j = 0; j < tamanhos[t]; j++) {
+        soma += ratings[indices[pos]];
+        pos++;
+      }
+      var media = soma / tamanhos[t];
+      if (media > maxMedia) maxMedia = media;
+      if (media < minMedia) minMedia = media;
+    }
+    var diff = maxMedia - minMedia;
+
+    if (diff < melhorDiff) {
+      melhorDiff = diff;
+      melhorOrdem = indices.slice();
+      if (diff < EARLY_EXIT) break;
+    }
+  }
+
+  // Montar times com a melhor ordem encontrada
+  var times = [];
+  var pos = 0;
+  for (var t = 0; t < numTimes; t++) {
+    var time = [];
+    for (var j = 0; j < tamanhos[t]; j++) {
+      time.push(jogadores[melhorOrdem[pos]]);
+      pos++;
+    }
+    times.push(time);
   }
 
   return times;
@@ -337,16 +390,8 @@ function executarSorteio(jogadoresComRating, semNota) {
   var panel = $('sorteioPanel');
   if (!panel) return;
 
-  // Aplicar jitter (±0.5) e ordenar
-  var comJitter = jogadoresComRating.map(function(j) {
-    var jitter = (Math.random() - 0.5) * 1.0; // ±0.5
-    return { nome: j.nome, rating: j.rating, ratingJitter: j.rating + jitter, temNota: j.temNota };
-  });
-
-  comJitter.sort(function(a, b) { return b.ratingJitter - a.ratingJitter; });
-
-  var numTimes = calcNumTimes(comJitter.length);
-  var times = distribuirJogadores(comJitter, numTimes);
+  var numTimes = calcNumTimes(jogadoresComRating.length);
+  var times = distribuirJogadoresBruteForce(jogadoresComRating, numTimes);
 
   // Guardar sorteio atual para uso nos botões
   sorteioAtual = times;
@@ -381,7 +426,7 @@ function executarSorteio(jogadoresComRating, semNota) {
     h += '<div class="sorteio-time-card" style="border-color:' + tc.border + ';">';
     h += '<div class="sorteio-time-header" style="background:' + tc.bg + ';color:' + tc.cor + ';">';
     h += '<span>' + tc.emoji + ' ' + tc.nome + ' (' + time.length + ')</span>';
-    h += '<span style="font-size:12px;font-weight:600;">μ ' + mediaRating.toFixed(1) + '</span>';
+    h += '<span style="font-size:12px;font-weight:600;">média ' + mediaRating.toFixed(1) + '</span>';
     h += '</div>';
 
     // Jogadores
