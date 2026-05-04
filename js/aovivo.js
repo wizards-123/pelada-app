@@ -345,11 +345,12 @@ function executarSorteio(jogadoresComRating, semNota) {
     var tc = teamColors[idx];
     var somaRating = 0;
     time.forEach(function(j) { somaRating += j.rating; });
+    var mediaRating = time.length > 0 ? somaRating / time.length : 0;
 
     h += '<div class="sorteio-time-card" style="border-color:' + tc.border + ';">';
     h += '<div class="sorteio-time-header" style="background:' + tc.bg + ';color:' + tc.cor + ';">';
     h += '<span>' + tc.emoji + ' ' + tc.nome + ' (' + time.length + ')</span>';
-    h += '<span style="font-size:12px;font-weight:600;">Σ ' + somaRating.toFixed(1) + '</span>';
+    h += '<span style="font-size:12px;font-weight:600;">μ ' + mediaRating.toFixed(1) + '</span>';
     h += '</div>';
 
     // Jogadores
@@ -371,20 +372,20 @@ function executarSorteio(jogadoresComRating, semNota) {
   });
   h += '</div>';
 
-  // Diferença entre times
-  var somas = times.map(function(t) {
+  // Diferença entre médias dos times
+  var medias = times.map(function(t) {
     var s = 0;
     t.forEach(function(j) { s += j.rating; });
-    return s;
+    return t.length > 0 ? s / t.length : 0;
   });
-  var maxS = Math.max.apply(null, somas);
-  var minS = Math.min.apply(null, somas);
-  var diff = maxS - minS;
-  var diffColor = diff < 2 ? 'var(--green)' : (diff < 4 ? 'var(--gold)' : 'var(--red)');
+  var maxM = Math.max.apply(null, medias);
+  var minM = Math.min.apply(null, medias);
+  var diff = maxM - minM;
+  var diffColor = diff < 0.5 ? 'var(--green)' : (diff < 1.0 ? 'var(--gold)' : 'var(--red)');
 
   h += '<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;font-size:13px;">';
-  h += '<span style="color:var(--text2);">Diferença máx:</span>';
-  h += '<span style="font-weight:700;color:' + diffColor + ';">' + diff.toFixed(1) + ' pts</span>';
+  h += '<span style="color:var(--text2);">Diferença máx (média):</span>';
+  h += '<span style="font-weight:700;color:' + diffColor + ';">' + diff.toFixed(2) + '</span>';
   h += '</div>';
 
   h += '<button class="btn btn-secondary mt12" onclick="resortearTimes()" style="width:100%;">🎲 Sortear novamente</button>';
