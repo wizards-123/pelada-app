@@ -1,10 +1,9 @@
 // ============================================================
-// resultados.js - Ranking, votações, filtro multi-pelada
+// resultados.js - Ranking, filtro multi-pelada
 // ============================================================
 
 var resultPeladasSelecionadas = [];
 var resultAllPeladas = [];
-var resultCurrentTab = 'votacoes';
 var resultRankingSortCol = 'pts';
 var resultRankingSortDir = 'desc';
 var resultCachedData = null;
@@ -16,56 +15,52 @@ async function loadResultados() {
   $('resultadosArtilharia').style.display = 'none';
   $('resultadosVitorias').style.display = 'none';
 
-  // ============================================================
   // VOTE-GATE: bloqueia ranking se há votação aberta e user não votou
-  // ============================================================
   var canView = await checkVoteGate();
   if (!canView) return;
 
-  // Buscar todas as peladas do grupo
-  var { data: allP } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('data', { ascending: false });
+  // Buscar apenas peladas ativas do grupo
+  var { data: allP } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).neq('ativa', false).order('data', { ascending: false });
   resultAllPeladas = allP || [];
 
   // Inicializar: todas selecionadas
   if (resultPeladasSelecionadas.length === 0) {
     resultPeladasSelecionadas = resultAllPeladas.map(function(p) { return p.id; });
+  } else {
+    // Filtrar selecionadas que ainda existem nas ativas
+    var ativasIds = resultAllPeladas.map(function(p) { return p.id; });
+    resultPeladasSelecionadas = resultPeladasSelecionadas.filter(function(pid) {
+      return ativasIds.indexOf(pid) > -1;
+    });
+    if (resultPeladasSelecionadas.length === 0) {
+      resultPeladasSelecionadas = ativasIds;
+    }
   }
 
-  // Renderizar estrutura
   renderResultadosShell();
   await refreshResultadosData();
 }
 
 // ============================================================
 // VOTE-GATE CHECK
-// Retorna true se pode ver, false se bloqueado
 // ============================================================
 async function checkVoteGate() {
-  // ADM sempre pode ver
   if (isAdm) return true;
 
-  // Buscar peladas com votação aberta
   var { data: abertas } = await sb.from('peladas').select('id').eq('grupo_id', grupoAtual.id).eq('votacao_aberta', true);
-
-  // Se não há nenhuma pelada com votação aberta, todos podem ver
   if (!abertas || abertas.length === 0) return true;
 
-  // Verificar se o usuário já votou em TODAS as peladas com votação aberta
   var peladaIds = abertas.map(function(p) { return p.id; });
   var { data: votos } = await sb.from('votos').select('pelada_id').eq('grupo_id', grupoAtual.id).eq('votante', currentUser).in('pelada_id', peladaIds);
 
-  // Agrupar peladas em que o user votou
   var peladasVotadas = {};
   if (votos) {
     votos.forEach(function(v) { peladasVotadas[v.pelada_id] = true; });
   }
 
-  // Verificar se votou em todas as peladas abertas
   var faltaVotar = peladaIds.filter(function(pid) { return !peladasVotadas[pid]; });
-
   if (faltaVotar.length === 0) return true;
 
-  // Bloqueado: renderizar mensagem
   renderVoteGateBlock();
   return false;
 }
@@ -103,15 +98,8 @@ function renderResultadosShell() {
   });
   ddHtml += '</div></div>';
 
-  // Tabs
-  var tabsHtml = '<div class="tabs" id="resultTabs">';
-  tabsHtml += '<button class="tab' + (resultCurrentTab === 'votacoes' ? ' active' : '') + '" onclick="switchResultTab(\'votacoes\')">Votações</button>';
-  tabsHtml += '<button class="tab' + (resultCurrentTab === 'ranking' ? ' active' : '') + '" onclick="switchResultTab(\'ranking\')">Ranking</button>';
-  tabsHtml += '</div>';
-
-  el.innerHTML = ddHtml + tabsHtml +
-    '<div id="resultTabVotacoes"' + (resultCurrentTab !== 'votacoes' ? ' style="display:none;"' : '') + '></div>' +
-    '<div id="resultTabRanking"' + (resultCurrentTab !== 'ranking' ? ' style="display:none;"' : '') + '></div>';
+  // Sem tabs, direto o ranking
+  el.innerHTML = ddHtml + '<div id="resultTabRanking"></div>';
 }
 
 function getPeladaFilterLabel() {
@@ -135,7 +123,6 @@ function closePeladaDropdown() {
   if (btn) btn.classList.remove('open');
 }
 
-// Fechar dropdown ao clicar fora
 document.addEventListener('click', function(e) {
   var wrap = $('peladaFilterWrap');
   if (wrap && !wrap.contains(e.target) && resultDropdownOpen) {
@@ -181,31 +168,15 @@ function updatePeladaFilterLabel() {
   if (lbl) lbl.textContent = getPeladaFilterLabel();
 }
 
-function switchResultTab(t) {
-  resultCurrentTab = t;
-  document.querySelectorAll('#resultTabs .tab').forEach(function(tb) { tb.classList.remove('active'); });
-  if (t === 'votacoes') {
-    document.querySelectorAll('#resultTabs .tab')[0].classList.add('active');
-    $('resultTabVotacoes').style.display = 'block';
-    $('resultTabRanking').style.display = 'none';
-  } else {
-    document.querySelectorAll('#resultTabs .tab')[1].classList.add('active');
-    $('resultTabVotacoes').style.display = 'none';
-    $('resultTabRanking').style.display = 'block';
-  }
-}
-
 // ============================================================
 // DATA FETCHING
 // ============================================================
 async function refreshResultadosData() {
   if (resultPeladasSelecionadas.length === 0) {
-    $('resultTabVotacoes').innerHTML = '<div class="empty-state"><span class="emoji">🔍</span>Selecione ao menos 1 pelada.</div>';
     $('resultTabRanking').innerHTML = '<div class="empty-state"><span class="emoji">🔍</span>Selecione ao menos 1 pelada.</div>';
     return;
   }
 
-  // Fetch all needed data in parallel
   var pIds = resultPeladasSelecionadas;
 
   var votosPromise = sb.from('votos').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
@@ -219,69 +190,12 @@ async function refreshResultadosData() {
   var partidas = results[2].data || [];
   var presenca = results[3].data || [];
 
-  // Filtrar apenas categorias válidas (ignorar Decepcao e Revelacao legados)
   votos = votos.filter(function(v) {
     return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
   });
 
   resultCachedData = { votos: votos, gols: gols, partidas: partidas, presenca: presenca };
-
-  renderVotacoesTab(votos);
   renderRankingTab(votos, gols, partidas, presenca);
-}
-
-// ============================================================
-// VOTAÇÕES TAB
-// ============================================================
-function renderVotacoesTab(votos) {
-  var ranking = buildRanking(votos);
-  var pc = [
-    { key: 'Goleiro', emoji: '🧤' },
-    { key: 'MVP', emoji: '⭐' },
-    { key: 'Selecao', emoji: '🏅' }
-  ];
-  var h = '';
-  pc.forEach(function(c) {
-    var rk = ranking[c.key] || [];
-    h += '<div class="card"><div class="card-title">' + c.emoji + ' ' + c.key + '</div>';
-    if (rk.length === 0) h += '<div class="text-muted">Sem votos.</div>';
-    else {
-      h += '<ul class="ranking-list">';
-      for (var r = 0; r < rk.length && r < 10; r++) {
-        var ps = r === 0 ? 'gold' : r === 1 ? 'silver' : r === 2 ? 'bronze' : 'normal';
-        h += '<li class="ranking-item"><div class="ranking-pos ' + ps + '">' + (r + 1) + '</div><div class="ranking-name">' + dn(rk[r].nome) + '</div><div class="ranking-votes">' + rk[r].votos + '</div></li>';
-      }
-      h += '</ul>';
-    }
-    h += '</div>';
-  });
-
-  // Votos detalhados (ADM)
-  if (isAdm) {
-    h += '<div class="card mt16"><div class="card-title">🔍 Votos Detalhados (ADM)</div>';
-    if (votos.length === 0) {
-      h += '<div class="text-muted">Nenhum voto.</div>';
-    } else {
-      h += '<div style="overflow-x:auto;"><table class="log-table"><tr><th>Pelada</th><th>Votante</th><th>Prêmio</th><th>Votado</th></tr>';
-      votos.forEach(function(x) {
-        h += '<tr><td>' + x.pelada_id + '</td><td>' + dn(x.votante) + '</td><td>' + x.premio + '</td><td>' + dn(x.votado) + '</td></tr>';
-      });
-      h += '</table></div>';
-    }
-    h += '</div>';
-  }
-
-  $('resultTabVotacoes').innerHTML = h;
-}
-
-function buildRanking(v) {
-  var pr = ['Goleiro', 'MVP', 'Selecao'], r = {};
-  pr.forEach(function(p) {
-    var c = {};
-    v.forEach(function(x) { if (x.premio === p) c[x.votado] = (c[x.votado] || 0) + 1; });
-    r[p] = Object.keys(c).map(function(n) { return { nome: n, votos: c[n] }; }).sort(function(a, b) { return b.votos - a.votos; });
-  });
-  return r;
 }
 
 // ============================================================
@@ -353,27 +267,23 @@ function renderRankingTab(votos, gols, partidas, presenca) {
 function buildPlayerStats(votos, gols, partidas, presenca) {
   var map = {};
 
-  // Helper: garante que jogador existe no map
   function ensure(nome) {
     if (!map[nome]) {
       map[nome] = { nome: nome, pts: 0, gols: 0, vitorias: 0, peladas: 0, mvp: 0, selecao: 0, goleiro: 0, peladaSet: {} };
     }
   }
 
-  // 1. Presença (para contar peladas por jogador)
   presenca.forEach(function(pr) {
     ensure(pr.jogador);
     map[pr.jogador].peladaSet[pr.pelada_id] = true;
   });
 
-  // 2. Gols (já filtrados para gol_contra === false)
   gols.forEach(function(g) {
     ensure(g.jogador);
     map[g.jogador].gols += 1;
     map[g.jogador].peladaSet[g.pelada_id] = true;
   });
 
-  // 3. Vitórias
   partidas.forEach(function(p) {
     if (!p.vencedor || p.vencedor === 'Empate' || p.vencedor === '') return;
     var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
@@ -386,8 +296,6 @@ function buildPlayerStats(votos, gols, partidas, presenca) {
     });
   });
 
-  // 4. Prêmios por pelada (MVP, Seleção, Goleiro)
-  //    Agrupar votos por pelada e prêmio, calcular vencedores
   var votosPorPelada = {};
   votos.forEach(function(v) {
     var k = v.pelada_id;
@@ -397,21 +305,14 @@ function buildPlayerStats(votos, gols, partidas, presenca) {
 
   Object.keys(votosPorPelada).forEach(function(peladaId) {
     var pv = votosPorPelada[peladaId];
-
-    // MVP: 1° colocado(s) em votos
     var mvpWinners = getWinners(pv, 'MVP', 1);
     mvpWinners.forEach(function(n) { ensure(n); map[n].mvp += 1; });
-
-    // Goleiro: 1° colocado(s) em votos
     var golWinners = getWinners(pv, 'Goleiro', 1);
     golWinners.forEach(function(n) { ensure(n); map[n].goleiro += 1; });
-
-    // Seleção: top 4 (com empate no corte)
     var selWinners = getWinners(pv, 'Selecao', 4);
     selWinners.forEach(function(n) { ensure(n); map[n].selecao += 1; });
   });
 
-  // Calcular campos derivados
   var players = Object.keys(map).map(function(nome) {
     var p = map[nome];
     p.peladas = Object.keys(p.peladaSet).length;
@@ -425,9 +326,6 @@ function buildPlayerStats(votos, gols, partidas, presenca) {
   return players;
 }
 
-// Retorna nomes dos vencedores de um prêmio numa pelada
-// topN: quantos "slots" (1 para MVP/Goleiro, 4 para Seleção)
-// Em caso de empate no corte, todos os empatados entram
 function getWinners(votosArr, premio, topN) {
   var contagem = {};
   votosArr.forEach(function(v) {
@@ -444,13 +342,11 @@ function getWinners(votosArr, premio, topN) {
   var i = 0;
   while (i < sorted.length && slotsFilled < topN) {
     var currentVotes = sorted[i].votos;
-    // Pega todos com esse mesmo número de votos
     var tiedGroup = [];
     while (i < sorted.length && sorted[i].votos === currentVotes) {
       tiedGroup.push(sorted[i].nome);
       i++;
     }
-    // Se ainda cabe no topN OU se estamos no corte e há empate
     winners = winners.concat(tiedGroup);
     slotsFilled += tiedGroup.length;
   }
@@ -483,19 +379,17 @@ function sortPlayers(players) {
       return dir === 'asc' ? cmp : -cmp;
     }
 
-    // Numérico (incluindo strings como "1.5")
     va = parseFloat(a[col]) || 0;
     vb = parseFloat(b[col]) || 0;
     if (va !== vb) return dir === 'desc' ? vb - va : va - vb;
 
-    // Desempate: pts > gols > mvp > selecao
     var tiebreakers = ['pts', 'gols', 'mvp', 'selecao'];
     for (var i = 0; i < tiebreakers.length; i++) {
       var tk = tiebreakers[i];
       if (tk === col) continue;
       var ta = parseFloat(a[tk]) || 0;
       var tb = parseFloat(b[tk]) || 0;
-      if (ta !== tb) return tb - ta; // desempate sempre desc
+      if (ta !== tb) return tb - ta;
     }
     return 0;
   });
