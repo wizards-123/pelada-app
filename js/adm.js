@@ -46,7 +46,6 @@ async function loadAdmGrupo() {
   var el = $('admTabGrupo');
   showSkeleton('admTabGrupo');
 
-  // Buscar dados frescos do grupo
   var { data: g } = await sb.from('grupos').select('*').eq('id', grupoAtual.id).single();
   if (g) grupoAtual = g;
 
@@ -56,7 +55,6 @@ async function loadAdmGrupo() {
   var h = '<div class="card"><div class="card-title">🔐 Senha da Pelada</div>';
   h += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Defina se os jogadores precisam digitar uma senha para acessar o grupo.</div>';
 
-  // Toggle tem_senha
   h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
   h += '<span style="font-size:14px;font-weight:500;">Exigir senha de acesso</span>';
   h += '<div class="toggle-wrap" onclick="toggleGrupoSenha()" id="grupoSenhaToggle" style="' +
@@ -66,7 +64,6 @@ async function loadAdmGrupo() {
     'left:' + (temSenha ? '25px' : '3px') + ';box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div></div>';
   h += '</div>';
 
-  // Campo de senha (visível só se tem_senha)
   h += '<div id="grupoSenhaCampo" style="' + (temSenha ? '' : 'display:none;') + '">';
   h += '<div class="vote-category"><label>Senha de acesso</label>';
   h += '<input type="text" class="vote-select" id="grupoSenhaValor" value="' + senhaAtual.replace(/"/g, '&quot;') + '" placeholder="Digite a senha...">';
@@ -76,7 +73,6 @@ async function loadAdmGrupo() {
 
   h += '</div>';
 
-  // Info do grupo
   h += '<div class="card"><div class="card-title">📋 Info do Grupo</div>';
   h += '<div class="status-row"><span class="status-label">Nome</span><span class="status-value">' + grupoAtual.nome + '</span></div>';
   h += '<div class="status-row"><span class="status-label">Código</span><span class="status-value">' + grupoAtual.id + '</span></div>';
@@ -90,7 +86,6 @@ function toggleGrupoSenha() {
   var temSenha = grupoAtual.tem_senha !== false;
   var novoValor = !temSenha;
 
-  // Atualizar no banco
   sb.from('grupos').update({ tem_senha: novoValor }).eq('id', grupoAtual.id).then(function(res) {
     if (res.error) { showToast(res.error.message, true); return; }
     grupoAtual.tem_senha = novoValor;
@@ -115,35 +110,95 @@ async function salvarGrupoSenha() {
 // --- Pelada ---
 async function loadAdmPelada() {
   showSkeleton('admTabPelada');
+  // Buscar TODAS as peladas (incluindo inativas) para o ADM gerenciar
   var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
   allPeladas = p || [];
-  peladaAtual = allPeladas[0] || null;
 
+  // A pelada ativa mais recente
+  var ativas = allPeladas.filter(function(x) { return x.ativa !== false; });
+  peladaAtual = ativas[0] || allPeladas[0] || null;
+
+  // Select mostra apenas ativas para gerenciar
   var po = '';
-  allPeladas.forEach(function(p, i) {
+  ativas.forEach(function(p, i) {
     po += '<option value="' + p.id + '"' + (i === 0 ? ' selected' : '') + '>' + peladaLabelComData(p) + ' — ' + p.status + '</option>';
   });
 
-  $('admTabPelada').innerHTML =
-    '<div class="card"><div class="card-title">📅 Nova Pelada</div>' +
-    '<div class="input-row mb16"><input type="date" id="novaPeladaData"><button class="btn btn-primary" onclick="criarNovaPelada()">Criar</button></div>' +
-    '</div>' +
-    (allPeladas.length > 0
-      ? '<div class="card"><div class="card-title">📋 Gerenciar</div>' +
-        '<select class="vote-select mb16" id="admPeladaSelect" onchange="onAdmPeladaSelectChange()">' + po + '</select>' +
-        '<div id="admPeladaRename"></div>' +
-        '<div id="admPeladaActions"></div></div>' +
-        '<div class="card"><div class="card-title">👥 Presença</div><div id="admPresencaList"></div><button class="btn btn-primary mt12" onclick="salvarPresenca()">Salvar</button></div>'
-      : '');
+  var inativas = allPeladas.filter(function(x) { return x.ativa === false; });
 
-  if (allPeladas.length > 0) loadAdmPeladaDetails(allPeladas[0].id);
+  var h = '';
+  h += '<div class="card"><div class="card-title">📅 Nova Pelada</div>';
+  h += '<div class="input-row mb16"><input type="date" id="novaPeladaData"><button class="btn btn-primary" onclick="criarNovaPelada()">Criar</button></div>';
+  h += '</div>';
+
+  if (ativas.length > 0) {
+    h += '<div class="card"><div class="card-title">📋 Gerenciar</div>';
+    h += '<select class="vote-select mb16" id="admPeladaSelect" onchange="onAdmPeladaSelectChange()">' + po + '</select>';
+    h += '<div id="admPeladaRename"></div>';
+    h += '<div id="admPeladaActions"></div></div>';
+    h += '<div class="card"><div class="card-title">👥 Presença</div><div id="admPresencaList"></div><button class="btn btn-primary mt12" onclick="salvarPresenca()">Salvar</button></div>';
+  }
+
+  // Seção de peladas inativas (arquivadas)
+  h += renderPeladasArquivadas(ativas, inativas);
+
+  $('admTabPelada').innerHTML = h;
+
+  if (ativas.length > 0) loadAdmPeladaDetails(ativas[0].id);
+}
+
+function renderPeladasArquivadas(ativas, inativas) {
+  var h = '<div class="card"><div class="card-title">📦 Gerenciar Visibilidade</div>';
+  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Peladas desativadas ficam ocultas no app para todos, mas os dados permanecem no banco.</div>';
+
+  if (allPeladas.length === 0) {
+    h += '<div class="text-muted">Nenhuma pelada.</div></div>';
+    return h;
+  }
+
+  // Listar todas as peladas com toggle ativa/inativa
+  allPeladas.forEach(function(p) {
+    var isAtiva = p.ativa !== false;
+    var df = p.data;
+    try { df = new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR'); } catch(e) {}
+
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(36,48,73,0.3);">';
+    h += '<div style="flex:1;min-width:0;">';
+    h += '<div style="font-size:13px;font-weight:500;' + (isAtiva ? 'color:var(--text);' : 'color:var(--text3);') + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + peladaLabel(p) + '</div>';
+    h += '<div style="font-size:11px;color:var(--text3);">' + df + ' · ' + p.status + '</div>';
+    h += '</div>';
+
+    // Toggle
+    h += '<div onclick="togglePeladaAtiva(\'' + p.id + '\',' + (isAtiva ? 'false' : 'true') + ')" style="' +
+      'width:44px;height:24px;border-radius:12px;cursor:pointer;transition:background .2s;position:relative;flex-shrink:0;margin-left:12px;' +
+      'background:' + (isAtiva ? 'var(--green)' : 'var(--bg3)') + ';border:1px solid ' + (isAtiva ? 'var(--green)' : 'var(--border)') + ';">' +
+      '<div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left .2s;' +
+      'left:' + (isAtiva ? '22px' : '3px') + ';box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div></div>';
+    h += '</div>';
+  });
+
+  h += '</div>';
+  return h;
+}
+
+async function togglePeladaAtiva(peladaId, novoValor) {
+  var { error: e } = await sb.from('peladas').update({ ativa: novoValor }).eq('id', peladaId).eq('grupo_id', grupoAtual.id);
+  if (e) { showToast(e.message, true); return; }
+
+  var label = novoValor ? 'ativada' : 'desativada';
+  showToast('Pelada ' + label + '.');
+  logAsync(currentUser, 'TOGGLE_PELADA', peladaId + ' → ' + label);
+
+  // Resetar filtro do ranking para forçar recálculo
+  resultPeladasSelecionadas = [];
+
+  loadAdmPelada();
 }
 
 async function loadAdmPeladaDetails(pid) {
   var pel = allPeladas.find(function(p) { return p.id === pid; });
   if (!pel) return;
 
-  // Rename field
   var re = $('admPeladaRename');
   if (re) {
     re.innerHTML =
@@ -168,7 +223,6 @@ async function loadAdmPeladaDetails(pid) {
   if (qjv.length > 0) h += '<div class="text-muted" style="font-size:12px;">Votaram (' + qjv.length + '): ' + sa(qjv).map(dn).join(', ') + '</div>';
   if (ae) ae.innerHTML = h;
 
-  // Presença
   var { data: pr } = await sb.from('presenca').select('jogador').eq('pelada_id', pid).eq('grupo_id', grupoAtual.id);
   var pl = (pr || []).map(function(r) { return r.jogador; });
   var { data: jg } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
@@ -199,12 +253,10 @@ async function renamePelada(pid) {
   showToast('Nome atualizado!');
   logAsync(currentUser, 'RENOMEAR_PELADA', pid + ' → ' + novoNome);
 
-  // Atualizar objetos locais
   var found = allPeladas.find(function(p) { return p.id === pid; });
   if (found) found.nome = novoNome;
   if (peladaAtual && peladaAtual.id === pid) peladaAtual.nome = novoNome;
 
-  // Atualizar o select sem recarregar tudo
   var sel = $('admPeladaSelect');
   if (sel) {
     var opt = sel.querySelector('option[value="' + pid + '"]');
@@ -219,7 +271,7 @@ async function criarNovaPelada() {
   var d = $('novaPeladaData').value;
   if (!d) { showToast('Data!', true); return; }
   var { data: nid } = await sb.rpc('next_pelada_id_grupo', { p_grupo_id: grupoAtual.id });
-  var { error: e } = await sb.from('peladas').insert({ id: nid, data: d, status: 'Agendada', votacao_aberta: false, grupo_id: grupoAtual.id, nome: nid });
+  var { error: e } = await sb.from('peladas').insert({ id: nid, data: d, status: 'Agendada', votacao_aberta: false, grupo_id: grupoAtual.id, nome: nid, ativa: true });
   if (e) { showToast(e.message, true); return; }
   showToast('Criada: ' + nid);
   logAsync(currentUser, 'CRIAR_PELADA', nid);
