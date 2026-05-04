@@ -10,7 +10,8 @@ async function loadHome() {
   homePeladaDetalhe = null;
   showSkeleton('homeContent');
 
-  var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
+  // Buscar apenas peladas ativas
+  var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).neq('ativa', false).order('criado_em', { ascending: false });
   allPeladas = p || [];
   peladaAtual = allPeladas.find(function(x) { return x.status !== 'Realizada' && x.status !== 'Encerrada'; }) || allPeladas[0] || null;
 
@@ -101,7 +102,6 @@ async function loadPeladaDetalhe(p) {
   var gols = results[1].data || [];
   var votos = results[2].data || [];
 
-  // Filtrar apenas categorias válidas (ignorar Decepcao e Revelacao legados)
   votos = votos.filter(function(v) {
     return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
   });
@@ -130,7 +130,6 @@ function renderPeladaDetalhe(p, partidas, gols, votos) {
       var isLast = idx === partidas.length - 1;
       var golsPartida = gols.filter(function(g) { return g.partida_id === pt.partida_id; });
 
-      // Contar gols por jogador atribuídos ao time correto
       var golsCountA = {};
       var golsCountB = {};
       golsPartida.forEach(function(g) {
@@ -144,17 +143,14 @@ function renderPeladaDetalhe(p, partidas, gols, votos) {
       h += '<div class="partida-detail-block' + (isLast ? '' : ' partida-detail-border') + '">';
       h += '<div style="font-size:13px;font-weight:700;margin-bottom:12px;">Partida ' + pt.numero + '</div>';
 
-      // Placar
       h += '<div class="partida-placar-row">';
       h += '<div class="partida-placar-side"><div class="partida-placar-label">🔵 Time A</div><div class="partida-placar-num partida-placar-a">' + pt.placar_a + '</div></div>';
       h += '<div class="partida-placar-x">×</div>';
       h += '<div class="partida-placar-side"><div class="partida-placar-label">Time B 🟠</div><div class="partida-placar-num partida-placar-b">' + pt.placar_b + '</div></div>';
       h += '</div>';
 
-      // Times lado a lado
       h += '<div class="partida-teams-row">';
 
-      // Time A
       h += '<div class="partida-team-box partida-team-box-a">';
       h += '<div class="partida-team-box-label partida-team-box-label-a">🔵 Time A</div>';
       sa(pt.time_a || []).forEach(function(n) {
@@ -169,7 +165,6 @@ function renderPeladaDetalhe(p, partidas, gols, votos) {
       });
       h += '</div>';
 
-      // Time B
       h += '<div class="partida-team-box partida-team-box-b">';
       h += '<div class="partida-team-box-label partida-team-box-label-b">🟠 Time B</div>';
       sa(pt.time_b || []).forEach(function(n) {
