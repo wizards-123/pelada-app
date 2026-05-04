@@ -1,10 +1,11 @@
 // ============================================================
-// aovivo.js - Ao Vivo, partidas, gols, realtime, substituições
+// aovivo.js - Ao Vivo, partidas, gols, realtime, substituições, sortear times
 // ============================================================
 
 var aoVivoPresentes = [];
 var teamPicks = {};
 var subPendente = null; // { partida_id, jogador, time } - aguardando seleção do substituto
+var sorteioAtual = null; // resultado do último sorteio: array de arrays de { nome, rating }
 
 async function loadAoVivo() {
   var el = $('aoVivoContent');
@@ -83,18 +84,8 @@ function calcPreSelection(allPartidas) {
     stayTeamSide = (ficouNaUltima === 'A') ? 'B' : 'A';
   }
 
-  // Buscar quem TERMINOU jogando (precisa considerar substituições)
-  // Como substituições estão no DB e não temos aqui, usamos o array do time
-  // O array time_a/time_b já inclui substitutos (adicionados via addSubToTeam)
   var teamArray = stayTeamSide === 'A' ? (lastMatch.time_a || []) : (lastMatch.time_b || []);
 
-  // Precisamos saber quem saiu - mas não temos as subs aqui de forma síncrona
-  // Solução: guardar na partida os jogadores ativos
-  // Por ora, usamos o array completo e confiamos que o loadAoVivo
-  // vai buscar as subs para a partida ativa. Para o rei da mesa,
-  // precisamos buscar as subs da última partida finalizada.
-
-  // Retornar objeto especial que indica que precisa resolver subs
   return { stayTeam: stayTeamSide, lastPartidaId: lastMatch.partida_id, teamArray: teamArray };
 }
 
@@ -116,7 +107,6 @@ function calcFicouSide(finalizadas) {
   return ficou;
 }
 
-// Versão async do setup que resolve substituições para rei da mesa
 async function resolvePreSelectAndRender(tp, pn, preSelect) {
   var el = $('aoVivoContent');
 
@@ -125,22 +115,18 @@ async function resolvePreSelectAndRender(tp, pn, preSelect) {
     return;
   }
 
-  // Buscar substituições da última partida finalizada
   var { data: subs } = await sb.from('substituicoes').select('*').eq('partida_id', preSelect.lastPartidaId).eq('grupo_id', grupoAtual.id);
   subs = subs || [];
 
   var teamSubs = subs.filter(function(s) { return s.time === preSelect.stayTeam; });
 
-  // Jogadores que saíram
   var saiu = {};
   teamSubs.forEach(function(s) { saiu[s.jogador_saiu] = true; });
 
-  // Jogadores ativos = array do time menos quem saiu
   var activePlayers = preSelect.teamArray.filter(function(n) {
     return n && !saiu[n.trim()];
   });
 
-  // Limitar a 5 (os que terminaram jogando)
   activePlayers = activePlayers.slice(0, 5);
 
   if (activePlayers.length === 0) {
@@ -186,6 +172,17 @@ function renderSetupPartida(tp, pn, preSelect) {
     rh += '</div>';
   }
 
+  // Botão de sortear times (aparece se >= 10 presentes)
+  var sortearBtn = '';
+  if (aoVivoPresentes.length >= 10) {
+    sortearBtn = '<button class="btn btn-secondary mt12" onclick="sortearTimes()" style="margin-bottom:16px;">🎲 Sortear Times (' + aoVivoPresentes.length + ' presentes)</button>';
+  } else if (aoVivoPresentes.length > 0 && aoVivoPresentes.length < 10) {
+    sortearBtn = '<div style="font-size:12px;color:var(--text3);margin-bottom:12px;text-align:center;">🎲 Sorteio disponível a partir de 10 presentes (' + aoVivoPresentes.length + ' agora)</div>';
+  }
+
+  // Painel de sorteio (hidden, preenchido ao sortear)
+  var sortearPanel = '<div id="sorteioPanel"></div>';
+
   var po = sa(aoVivoPresentes), ph = '';
   po.forEach(function(n) {
     var cls = 'pool-chip';
@@ -204,6 +201,8 @@ function renderSetupPartida(tp, pn, preSelect) {
   }
 
   el.innerHTML = rh +
+    sortearBtn +
+    sortearPanel +
     '<div class="card"><div class="card-title">⚽ Partida ' + pn + '</div>' +
     preSelectBanner +
     '<div class="team-pick-label">1º=🔵A, 2º=🟠B, 3º=remove</div>' +
@@ -234,6 +233,212 @@ function pickPlayer(c) {
   $('countB').textContent = cB;
 }
 
+// ============================================================
+// SORTEAR TIMES: algoritmo serpentina com jitter
+// ============================================================
+
+function calcNumTimes(n) {
+  if (n <= 15) return 3;
+  if (n <= 20) return 4;
+  return 5;
+}
+
+function distribuirJogadores(jogadores, numTimes) {
+  // jogadores já vem ordenado por rating+jitter desc
+  // Serpentina: 0→T1, 1→T2, 2→T3, 3→T3, 4→T2, 5→T1, ...
+  var times = [];
+  for (var i = 0; i < numTimes; i++) times.push([]);
+
+  var direction = 1; // 1 = forward, -1 = backward
+  var idx = 0;
+
+  for (var i = 0; i < jogadores.length; i++) {
+    times[idx].push(jogadores[i]);
+    // Avançar na serpentina
+    if (direction === 1 && idx === numTimes - 1) {
+      direction = -1;
+    } else if (direction === -1 && idx === 0) {
+      direction = 1;
+    } else {
+      idx += direction;
+    }
+  }
+
+  return times;
+}
+
+async function sortearTimes() {
+  var panel = $('sorteioPanel');
+  if (!panel) return;
+  panel.innerHTML = '<div style="text-align:center;padding:20px;"><div class="loader"></div><div style="color:var(--text2);font-size:13px;margin-top:8px;">Buscando avaliações...</div></div>';
+
+  // Buscar notas médias de todos os presentes
+  var { data: notas } = await sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id);
+  notas = notas || [];
+
+  // Calcular média por jogador
+  var somaNotas = {};
+  var countNotas = {};
+  notas.forEach(function(n) {
+    if (!somaNotas[n.avaliado]) { somaNotas[n.avaliado] = 0; countNotas[n.avaliado] = 0; }
+    somaNotas[n.avaliado] += n.nota;
+    countNotas[n.avaliado]++;
+  });
+
+  // Montar array de presentes com rating
+  var semNota = [];
+  var jogadoresComRating = aoVivoPresentes.map(function(nome) {
+    var media = 5.0; // default
+    var temNota = false;
+    if (somaNotas[nome] !== undefined && countNotas[nome] > 0) {
+      media = somaNotas[nome] / countNotas[nome];
+      temNota = true;
+    } else {
+      semNota.push(nome);
+    }
+    return { nome: nome, rating: media, temNota: temNota };
+  });
+
+  executarSorteio(jogadoresComRating, semNota);
+}
+
+function executarSorteio(jogadoresComRating, semNota) {
+  var panel = $('sorteioPanel');
+  if (!panel) return;
+
+  // Aplicar jitter (±0.5) e ordenar
+  var comJitter = jogadoresComRating.map(function(j) {
+    var jitter = (Math.random() - 0.5) * 1.0; // ±0.5
+    return { nome: j.nome, rating: j.rating, ratingJitter: j.rating + jitter, temNota: j.temNota };
+  });
+
+  comJitter.sort(function(a, b) { return b.ratingJitter - a.ratingJitter; });
+
+  var numTimes = calcNumTimes(comJitter.length);
+  var times = distribuirJogadores(comJitter, numTimes);
+
+  // Guardar sorteio atual para uso nos botões
+  sorteioAtual = times;
+
+  // Cores dos times
+  var teamColors = [
+    { nome: 'Time 1', cor: 'var(--blue)', bg: 'var(--blueGlow)', border: 'rgba(59,130,246,0.3)', emoji: '🔵' },
+    { nome: 'Time 2', cor: 'var(--orange)', bg: 'var(--orangeGlow)', border: 'rgba(249,115,22,0.3)', emoji: '🟠' },
+    { nome: 'Time 3', cor: 'var(--green)', bg: 'var(--greenGlow)', border: 'rgba(34,197,94,0.3)', emoji: '🟢' },
+    { nome: 'Time 4', cor: 'var(--purple)', bg: 'var(--purpleGlow)', border: 'rgba(168,85,247,0.3)', emoji: '🟣' },
+    { nome: 'Time 5', cor: 'var(--gold)', bg: 'var(--goldGlow)', border: 'rgba(250,204,21,0.3)', emoji: '🟡' }
+  ];
+
+  var h = '<div class="card" style="border-color:var(--green);">';
+  h += '<div class="card-title">🎲 Times Sorteados</div>';
+
+  // Aviso de jogadores sem nota
+  if (semNota.length > 0) {
+    h += '<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 14px;background:var(--goldGlow);border:1px solid rgba(250,204,21,0.3);border-radius:10px;margin-bottom:14px;font-size:12px;color:var(--gold);">';
+    h += '<span style="flex-shrink:0;">⚠️</span><span>' + semNota.length + ' jogador(es) sem avaliação (rating padrão 5.0): ' + semNota.map(function(n) { return dn(n); }).join(', ') + '</span>';
+    h += '</div>';
+  }
+
+  // Render cards dos times
+  h += '<div class="sorteio-times-grid">';
+  times.forEach(function(time, idx) {
+    var tc = teamColors[idx];
+    var somaRating = 0;
+    time.forEach(function(j) { somaRating += j.rating; });
+
+    h += '<div class="sorteio-time-card" style="border-color:' + tc.border + ';">';
+    h += '<div class="sorteio-time-header" style="background:' + tc.bg + ';color:' + tc.cor + ';">';
+    h += '<span>' + tc.emoji + ' ' + tc.nome + ' (' + time.length + ')</span>';
+    h += '<span style="font-size:12px;font-weight:600;">Σ ' + somaRating.toFixed(1) + '</span>';
+    h += '</div>';
+
+    // Jogadores
+    time.forEach(function(j) {
+      var notaClass = j.temNota ? '' : ' style="opacity:0.6;font-style:italic;"';
+      h += '<div class="sorteio-player-row">';
+      h += '<span class="sorteio-player-name"' + notaClass + '>' + dn(j.nome) + (j.temNota ? '' : ' *') + '</span>';
+      h += '<span class="sorteio-player-rating" style="color:' + tc.cor + ';">' + j.rating.toFixed(1) + '</span>';
+      h += '</div>';
+    });
+
+    // Botões para alocar no Time A ou B
+    h += '<div class="sorteio-actions">';
+    h += '<button class="sorteio-action-btn sorteio-action-a" onclick="alocarTimeSorteado(' + idx + ',\'A\')">→ 🔵 Time A</button>';
+    h += '<button class="sorteio-action-btn sorteio-action-b" onclick="alocarTimeSorteado(' + idx + ',\'B\')">→ 🟠 Time B</button>';
+    h += '</div>';
+
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // Diferença entre times
+  var somas = times.map(function(t) {
+    var s = 0;
+    t.forEach(function(j) { s += j.rating; });
+    return s;
+  });
+  var maxS = Math.max.apply(null, somas);
+  var minS = Math.min.apply(null, somas);
+  var diff = maxS - minS;
+  var diffColor = diff < 2 ? 'var(--green)' : (diff < 4 ? 'var(--gold)' : 'var(--red)');
+
+  h += '<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;font-size:13px;">';
+  h += '<span style="color:var(--text2);">Diferença máx:</span>';
+  h += '<span style="font-weight:700;color:' + diffColor + ';">' + diff.toFixed(1) + ' pts</span>';
+  h += '</div>';
+
+  h += '<button class="btn btn-secondary mt12" onclick="resortearTimes()" style="width:100%;">🎲 Sortear novamente</button>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Guardar dados para resortear sem refetch
+  window._sorteioDados = { jogadoresComRating: jogadoresComRating, semNota: semNota };
+}
+
+function resortearTimes() {
+  var dados = window._sorteioDados;
+  if (!dados) { sortearTimes(); return; }
+  executarSorteio(dados.jogadoresComRating, dados.semNota);
+}
+
+function alocarTimeSorteado(sorteioIdx, targetTeam) {
+  if (!sorteioAtual || !sorteioAtual[sorteioIdx]) return;
+
+  var jogadores = sorteioAtual[sorteioIdx];
+
+  // Limpar picks do targetTeam atual
+  for (var k in teamPicks) {
+    if (teamPicks[k] === targetTeam) {
+      teamPicks[k] = null;
+    }
+  }
+
+  // Alocar jogadores do time sorteado
+  jogadores.forEach(function(j) {
+    teamPicks[j.nome] = targetTeam;
+  });
+
+  // Atualizar visual dos chips
+  var chips = document.querySelectorAll('#playerPool .pool-chip');
+  chips.forEach(function(c) {
+    var n = c.getAttribute('data-player');
+    if (teamPicks[n] === 'A') c.className = 'pool-chip team-a';
+    else if (teamPicks[n] === 'B') c.className = 'pool-chip team-b';
+    else c.className = 'pool-chip';
+  });
+
+  // Atualizar contadores
+  var cA = 0, cB = 0;
+  for (var k in teamPicks) { if (teamPicks[k] === 'A') cA++; if (teamPicks[k] === 'B') cB++; }
+  if ($('countA')) $('countA').textContent = cA;
+  if ($('countB')) $('countB').textContent = cB;
+
+  var label = targetTeam === 'A' ? '🔵 Time A' : '🟠 Time B';
+  showToast('Time ' + (sorteioIdx + 1) + ' alocado no ' + label);
+}
+
 async function iniciarPartida(num) {
   var tA = [], tB = [];
   for (var k in teamPicks) { if (teamPicks[k] === 'A') tA.push(k); if (teamPicks[k] === 'B') tB.push(k); }
@@ -256,33 +461,27 @@ async function iniciarPartida(num) {
 // ============================================================
 function renderPartidaAtiva(part, gols, subs, tp) {
   var el = $('aoVivoContent');
-  subPendente = null; // limpar estado de sub pendente
+  subPendente = null;
 
-  // Mapear substituições por time
   var subsA = subs.filter(function(s) { return s.time === 'A'; });
   var subsB = subs.filter(function(s) { return s.time === 'B'; });
 
-  // Jogadores que saíram
   var saiuA = {};
   subsA.forEach(function(s) { saiuA[s.jogador_saiu] = true; });
   var saiuB = {};
-  subsB.forEach(function(s) { saiuB[s.jogador_entrou] && false; saiuB[s.jogador_saiu] = true; });
+  subsB.forEach(function(s) { saiuB[s.jogador_saiu] = true; });
 
-  // Jogadores que entraram (substitutos)
   var entrouA = subsA.map(function(s) { return s.jogador_entrou; });
   var entrouB = subsB.map(function(s) { return s.jogador_entrou; });
 
-  // Todos no time (originais + substitutos)
   var allA = (part.time_a || []).concat(entrouA);
   var allB = (part.time_b || []).concat(entrouB);
 
-  // Todos envolvidos em ambos os times (para filtrar disponíveis na sub)
   var todosNoJogo = {};
   allA.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
   allB.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
 
   function bTR(pl, substitutos, saiuMap, tl, subsCount) {
-    // pl = array original do time, substitutos = quem entrou
     var allPlayers = sa(pl.concat(substitutos));
     var h = '';
     allPlayers.forEach(function(n) {
@@ -297,10 +496,8 @@ function renderPartidaAtiva(part, gols, subs, tp) {
       nameHtml += '</span>';
 
       if (isSaiu) {
-        // Jogador que saiu: sem botões
         h += '<div class="team-player-row">' + nameHtml + '</div>';
       } else {
-        // Jogador ativo: botões de gol + gol contra + substituição
         var subBtn = '';
         if (subsCount < 3) {
           subBtn = '<button class="goal-btn goal-btn-sub" onclick="iniciarSub(\'' + part.partida_id + '\',\'' + n + '\',\'' + tl + '\')">🔄</button>';
@@ -317,7 +514,6 @@ function renderPartidaAtiva(part, gols, subs, tp) {
   var teamAHtml = bTR(part.time_a || [], entrouA, saiuA, 'A', subsA.length);
   var teamBHtml = bTR(part.time_b || [], entrouB, saiuB, 'B', subsB.length);
 
-  // Sub counters
   var subInfoA = subsA.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsA.length + '/3)</span>' : '';
   var subInfoB = subsB.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsB.length + '/3)</span>' : '';
 
@@ -333,7 +529,6 @@ function renderPartidaAtiva(part, gols, subs, tp) {
     gl += '</div></div>';
   }
 
-  // Log de substituições
   var subLog = '';
   if (subs.length > 0) {
     subLog = '<div class="card"><div class="card-title">🔄 Substituições</div><div class="gol-log">';
@@ -346,7 +541,6 @@ function renderPartidaAtiva(part, gols, subs, tp) {
     subLog += '</div></div>';
   }
 
-  // Painel de seleção de substituto (hidden por padrão)
   var subPanel = '<div id="subPanel" style="display:none;"></div>';
 
   el.innerHTML =
@@ -360,17 +554,15 @@ function renderPartidaAtiva(part, gols, subs, tp) {
     subLog +
     '<button class="btn btn-primary mt16" onclick="fPart(\'' + part.partida_id + '\')">✅ Finalizar ' + part.numero + '</button>';
 
-  // Guardar todosNoJogo para uso no painel de sub
   window._todosNoJogo = todosNoJogo;
 }
 
 // ============================================================
-// SUBSTITUIÇÃO: iniciar (mostrar painel de seleção)
+// SUBSTITUIÇÃO
 // ============================================================
 function iniciarSub(partidaId, jogador, time) {
   subPendente = { partida_id: partidaId, jogador: jogador, time: time };
 
-  // Jogadores disponíveis: presentes que NÃO estão em nenhum time
   var todosNoJogo = window._todosNoJogo || {};
   var disponiveis = aoVivoPresentes.filter(function(n) {
     return !todosNoJogo[n];
@@ -420,7 +612,6 @@ async function confirmarSub(jogadorEntrou) {
 
   if (e) { showToast(e.message, true); return; }
 
-  // Adicionar substituto ao array do time na tabela partidas
   await addSubToTeam(subPendente.partida_id, subPendente.time, jogadorEntrou);
 
   showToast('🔄 ' + dn(subPendente.jogador) + ' → ' + dn(jogadorEntrou));
@@ -429,8 +620,6 @@ async function confirmarSub(jogadorEntrou) {
   loadAoVivo();
 }
 
-// Adicionar substituto ao array time_a ou time_b na tabela partidas
-// para que vitória seja computada para todos
 async function addSubToTeam(partidaId, time, jogadorEntrou) {
   var col = time === 'A' ? 'time_a' : 'time_b';
   var { data: part } = await sb.from('partidas').select(col).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).single();
@@ -444,14 +633,10 @@ async function addSubToTeam(partidaId, time, jogadorEntrou) {
   }
 }
 
-// Remover substituição (desfazer)
 async function rSub(subId, partidaId, jogadorEntrou, time) {
   if (!confirm('Desfazer substituição?')) return;
 
-  // Remover da tabela substituicoes
   await sb.from('substituicoes').delete().eq('id', subId).eq('grupo_id', grupoAtual.id);
-
-  // Remover jogador_entrou do array do time
   await removeSubFromTeam(partidaId, time, jogadorEntrou);
 
   showToast('Substituição desfeita.');
