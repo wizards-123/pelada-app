@@ -15,19 +15,15 @@ async function loadResultados() {
   $('resultadosArtilharia').style.display = 'none';
   $('resultadosVitorias').style.display = 'none';
 
-  // VOTE-GATE: bloqueia ranking se há votação aberta e user não votou
   var canView = await checkVoteGate();
   if (!canView) return;
 
-  // Buscar apenas peladas ativas do grupo
   var { data: allP } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).neq('ativa', false).order('data', { ascending: false });
   resultAllPeladas = allP || [];
 
-  // Inicializar: todas selecionadas
   if (resultPeladasSelecionadas.length === 0) {
     resultPeladasSelecionadas = resultAllPeladas.map(function(p) { return p.id; });
   } else {
-    // Filtrar selecionadas que ainda existem nas ativas
     var ativasIds = resultAllPeladas.map(function(p) { return p.id; });
     resultPeladasSelecionadas = resultPeladasSelecionadas.filter(function(pid) {
       return ativasIds.indexOf(pid) > -1;
@@ -81,7 +77,6 @@ function renderResultadosShell() {
   var el = $('resultadosSemana');
   el.style.display = 'block';
 
-  // Dropdown de peladas
   var ddHtml = '<div class="pelada-filter-wrap" id="peladaFilterWrap">';
   ddHtml += '<div class="pelada-filter-btn" id="peladaFilterBtn" onclick="togglePeladaDropdown()">';
   ddHtml += '<span id="peladaFilterLabel">' + getPeladaFilterLabel() + '</span>';
@@ -98,7 +93,6 @@ function renderResultadosShell() {
   });
   ddHtml += '</div></div>';
 
-  // Sem tabs, direto o ranking
   el.innerHTML = ddHtml + '<div id="resultTabRanking"></div>';
 }
 
@@ -179,30 +173,25 @@ async function refreshResultadosData() {
 
   var pIds = resultPeladasSelecionadas;
 
-  var votosPromise = sb.from('votos').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
-  var golsPromise = sb.from('gols').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds).eq('gol_contra', false);
+  // Buscar TODOS os gols (normais + contra)
+  var golsPromise = sb.from('gols').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
   var partidasPromise = sb.from('partidas').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds).eq('status', 'Finalizada');
   var presencaPromise = sb.from('presenca').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
 
-  var results = await Promise.all([votosPromise, golsPromise, partidasPromise, presencaPromise]);
-  var votos = results[0].data || [];
-  var gols = results[1].data || [];
-  var partidas = results[2].data || [];
-  var presenca = results[3].data || [];
+  var results = await Promise.all([golsPromise, partidasPromise, presencaPromise]);
+  var gols = results[0].data || [];
+  var partidas = results[1].data || [];
+  var presenca = results[2].data || [];
 
-  votos = votos.filter(function(v) {
-    return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
-  });
-
-  resultCachedData = { votos: votos, gols: gols, partidas: partidas, presenca: presenca };
-  renderRankingTab(votos, gols, partidas, presenca);
+  resultCachedData = { gols: gols, partidas: partidas, presenca: presenca };
+  renderRankingTab(gols, partidas, presenca);
 }
 
 // ============================================================
 // RANKING TAB
 // ============================================================
-function renderRankingTab(votos, gols, partidas, presenca) {
-  var players = buildPlayerStats(votos, gols, partidas, presenca);
+function renderRankingTab(gols, partidas, presenca) {
+  var players = buildPlayerStats(gols, partidas, presenca);
   sortPlayers(players);
 
   var h = '<div class="card" style="padding:12px;overflow-x:auto;">';
@@ -214,11 +203,9 @@ function renderRankingTab(votos, gols, partidas, presenca) {
     { key: 'nome', label: 'Nome', sortable: true },
     { key: 'pts', label: 'Pts', sortable: true },
     { key: 'gols', label: 'Gols', sortable: true },
+    { key: 'gc', label: 'GC', sortable: true },
     { key: 'vitorias', label: 'Vit', sortable: true },
     { key: 'peladas', label: 'Pel', sortable: true },
-    { key: 'mvp', label: 'MVP', sortable: true },
-    { key: 'selecao', label: 'Sel', sortable: true },
-    { key: 'goleiro', label: 'GK', sortable: true },
     { key: 'ptsPelada', label: 'Pts/P', sortable: true },
     { key: 'golsPelada', label: 'G/P', sortable: true },
     { key: 'vitPelada', label: 'V/P', sortable: true }
@@ -244,11 +231,9 @@ function renderRankingTab(votos, gols, partidas, presenca) {
     h += '<td class="rt-td rt-name">' + dn(p.nome) + '</td>';
     h += '<td class="rt-td rt-num rt-bold">' + p.pts + '</td>';
     h += '<td class="rt-td rt-num">' + p.gols + '</td>';
+    h += '<td class="rt-td rt-num" style="' + (p.gc > 0 ? 'color:var(--red);' : '') + '">' + p.gc + '</td>';
     h += '<td class="rt-td rt-num">' + p.vitorias + '</td>';
     h += '<td class="rt-td rt-num">' + p.peladas + '</td>';
-    h += '<td class="rt-td rt-num">' + p.mvp + '</td>';
-    h += '<td class="rt-td rt-num">' + p.selecao + '</td>';
-    h += '<td class="rt-td rt-num">' + p.goleiro + '</td>';
     h += '<td class="rt-td rt-num">' + p.ptsPelada + '</td>';
     h += '<td class="rt-td rt-num">' + p.golsPelada + '</td>';
     h += '<td class="rt-td rt-num">' + p.vitPelada + '</td>';
@@ -264,26 +249,33 @@ function renderRankingTab(votos, gols, partidas, presenca) {
   $('resultTabRanking').innerHTML = h;
 }
 
-function buildPlayerStats(votos, gols, partidas, presenca) {
+function buildPlayerStats(gols, partidas, presenca) {
   var map = {};
 
   function ensure(nome) {
     if (!map[nome]) {
-      map[nome] = { nome: nome, pts: 0, gols: 0, vitorias: 0, peladas: 0, mvp: 0, selecao: 0, goleiro: 0, peladaSet: {} };
+      map[nome] = { nome: nome, pts: 0, gols: 0, gc: 0, vitorias: 0, peladas: 0, peladaSet: {} };
     }
   }
 
+  // Presença
   presenca.forEach(function(pr) {
     ensure(pr.jogador);
     map[pr.jogador].peladaSet[pr.pelada_id] = true;
   });
 
+  // Gols normais e contra
   gols.forEach(function(g) {
     ensure(g.jogador);
-    map[g.jogador].gols += 1;
+    if (g.gol_contra) {
+      map[g.jogador].gc += 1;
+    } else {
+      map[g.jogador].gols += 1;
+    }
     map[g.jogador].peladaSet[g.pelada_id] = true;
   });
 
+  // Vitórias
   partidas.forEach(function(p) {
     if (!p.vencedor || p.vencedor === 'Empate' || p.vencedor === '') return;
     var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
@@ -296,27 +288,11 @@ function buildPlayerStats(votos, gols, partidas, presenca) {
     });
   });
 
-  var votosPorPelada = {};
-  votos.forEach(function(v) {
-    var k = v.pelada_id;
-    if (!votosPorPelada[k]) votosPorPelada[k] = [];
-    votosPorPelada[k].push(v);
-  });
-
-  Object.keys(votosPorPelada).forEach(function(peladaId) {
-    var pv = votosPorPelada[peladaId];
-    var mvpWinners = getWinners(pv, 'MVP', 1);
-    mvpWinners.forEach(function(n) { ensure(n); map[n].mvp += 1; });
-    var golWinners = getWinners(pv, 'Goleiro', 1);
-    golWinners.forEach(function(n) { ensure(n); map[n].goleiro += 1; });
-    var selWinners = getWinners(pv, 'Selecao', 4);
-    selWinners.forEach(function(n) { ensure(n); map[n].selecao += 1; });
-  });
-
+  // Pontuação: Gol = +1, Vitória = +3, Gol Contra = -1
   var players = Object.keys(map).map(function(nome) {
     var p = map[nome];
     p.peladas = Object.keys(p.peladaSet).length;
-    p.pts = p.gols * 1 + p.vitorias * 3;
+    p.pts = (p.gols * 1) + (p.vitorias * 3) + (p.gc * -1);
     p.ptsPelada = p.peladas > 0 ? (p.pts / p.peladas).toFixed(1) : '0.0';
     p.golsPelada = p.peladas > 0 ? (p.gols / p.peladas).toFixed(1) : '0.0';
     p.vitPelada = p.peladas > 0 ? (p.vitorias / p.peladas).toFixed(1) : '0.0';
@@ -324,34 +300,6 @@ function buildPlayerStats(votos, gols, partidas, presenca) {
   });
 
   return players;
-}
-
-function getWinners(votosArr, premio, topN) {
-  var contagem = {};
-  votosArr.forEach(function(v) {
-    if (v.premio === premio) contagem[v.votado] = (contagem[v.votado] || 0) + 1;
-  });
-  var sorted = Object.keys(contagem).map(function(n) {
-    return { nome: n, votos: contagem[n] };
-  }).sort(function(a, b) { return b.votos - a.votos; });
-
-  if (sorted.length === 0) return [];
-
-  var winners = [];
-  var slotsFilled = 0;
-  var i = 0;
-  while (i < sorted.length && slotsFilled < topN) {
-    var currentVotes = sorted[i].votos;
-    var tiedGroup = [];
-    while (i < sorted.length && sorted[i].votos === currentVotes) {
-      tiedGroup.push(sorted[i].nome);
-      i++;
-    }
-    winners = winners.concat(tiedGroup);
-    slotsFilled += tiedGroup.length;
-  }
-
-  return winners;
 }
 
 function sortRankingBy(col) {
@@ -362,7 +310,7 @@ function sortRankingBy(col) {
     resultRankingSortDir = col === 'nome' ? 'asc' : 'desc';
   }
   if (resultCachedData) {
-    renderRankingTab(resultCachedData.votos, resultCachedData.gols, resultCachedData.partidas, resultCachedData.presenca);
+    renderRankingTab(resultCachedData.gols, resultCachedData.partidas, resultCachedData.presenca);
   }
 }
 
@@ -383,7 +331,8 @@ function sortPlayers(players) {
     vb = parseFloat(b[col]) || 0;
     if (va !== vb) return dir === 'desc' ? vb - va : va - vb;
 
-    var tiebreakers = ['pts', 'gols', 'mvp', 'selecao'];
+    // Desempate: pts > gols > vitorias
+    var tiebreakers = ['pts', 'gols', 'vitorias'];
     for (var i = 0; i < tiebreakers.length; i++) {
       var tk = tiebreakers[i];
       if (tk === col) continue;
