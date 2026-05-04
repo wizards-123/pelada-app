@@ -199,6 +199,20 @@
   .nota-slider-labels{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:var(--text3)}
   .nota-valor-display{font-size:14px;font-weight:700;color:var(--text)}
   html.light .nota-jogador-row{border-bottom-color:rgba(209,217,230,0.5)}
+  /* ===== SORTEIO DE TIMES ===== */
+  .sorteio-times-grid{display:flex;flex-direction:column;gap:12px}
+  .sorteio-time-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .sorteio-time-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:14px;font-weight:700}
+  .sorteio-player-row{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid rgba(36,48,73,0.25);font-size:13px}
+  .sorteio-player-row:last-child{border-bottom:none}
+  .sorteio-player-name{flex:1;color:var(--text)}
+  .sorteio-player-rating{font-weight:600;font-size:12px;font-variant-numeric:tabular-nums}
+  .sorteio-actions{display:flex;gap:8px;padding:10px 14px;border-top:1px solid rgba(36,48,73,0.25)}
+  .sorteio-action-btn{flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;text-align:center}
+  .sorteio-action-a:active{background:var(--blueGlow);border-color:var(--blue);color:var(--blue)}
+  .sorteio-action-b:active{background:var(--orangeGlow);border-color:var(--orange);color:var(--orange)}
+  html.light .sorteio-player-row{border-bottom-color:rgba(209,217,230,0.5)}
+  html.light .sorteio-actions{border-top-color:rgba(209,217,230,0.5)}
 </style>
 </head>
 <body>
