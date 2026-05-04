@@ -234,7 +234,7 @@ function pickPlayer(c) {
 }
 
 // ============================================================
-// SORTEAR TIMES: algoritmo serpentina com jitter
+// SORTEAR TIMES: algoritmo greedy por menor média com jitter
 // ============================================================
 
 function calcNumTimes(n) {
@@ -244,24 +244,55 @@ function calcNumTimes(n) {
 }
 
 function distribuirJogadores(jogadores, numTimes) {
-  // jogadores já vem ordenado por rating+jitter desc
-  // Serpentina: 0→T1, 1→T2, 2→T3, 3→T3, 4→T2, 5→T1, ...
-  var times = [];
-  for (var i = 0; i < numTimes; i++) times.push([]);
+  // Greedy: para cada jogador (do melhor ao pior),
+  // atribui ao time elegível com menor média atual.
+  // Isso equilibra médias mesmo com tamanhos desiguais (ex: 5+5+4).
 
-  var direction = 1; // 1 = forward, -1 = backward
-  var idx = 0;
+  var totalJogadores = jogadores.length;
+  var maxPorTime = Math.ceil(totalJogadores / numTimes);
+  var timesComMax = totalJogadores % numTimes; // quantos times terão maxPorTime
+  if (timesComMax === 0) timesComMax = numTimes;
+
+  // Capacidade de cada time
+  var capacidade = [];
+  for (var i = 0; i < numTimes; i++) {
+    capacidade.push(i < timesComMax ? maxPorTime : maxPorTime - 1);
+  }
+
+  var times = [];
+  var somaTimes = [];
+  for (var i = 0; i < numTimes; i++) {
+    times.push([]);
+    somaTimes.push(0);
+  }
 
   for (var i = 0; i < jogadores.length; i++) {
-    times[idx].push(jogadores[i]);
-    // Avançar na serpentina
-    if (direction === 1 && idx === numTimes - 1) {
-      direction = -1;
-    } else if (direction === -1 && idx === 0) {
-      direction = 1;
-    } else {
-      idx += direction;
+    var j = jogadores[i];
+
+    // Encontrar time elegível (não cheio) com menor média
+    var bestIdx = -1;
+    var bestMedia = Infinity;
+
+    for (var t = 0; t < numTimes; t++) {
+      if (times[t].length >= capacidade[t]) continue; // time cheio
+
+      var mediaAtual;
+      if (times[t].length === 0) {
+        mediaAtual = 0;
+      } else {
+        mediaAtual = somaTimes[t] / times[t].length;
+      }
+
+      // Desempate: se médias iguais, preferir time com menos jogadores
+      if (mediaAtual < bestMedia || (mediaAtual === bestMedia && (bestIdx === -1 || times[t].length < times[bestIdx].length))) {
+        bestMedia = mediaAtual;
+        bestIdx = t;
+      }
     }
+
+    if (bestIdx === -1) bestIdx = 0; // fallback (não deve ocorrer)
+    times[bestIdx].push(j);
+    somaTimes[bestIdx] += j.ratingJitter;
   }
 
   return times;
