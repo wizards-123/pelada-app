@@ -184,21 +184,36 @@
   .role-chip.selected{font-weight:600}
   .goal-btn-sub{background:var(--purpleGlow);color:var(--purple)}
   .goal-btn-sub:active{background:var(--purple);color:#fff}
-/* ===== NOTAS: SISTEMA DE AVALIAÇÃO ===== */
-  .nota-jogador-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid rgba(36,48,73,0.3)}
-  .nota-jogador-row:last-child{border-bottom:none}
-  .nota-jogador-info{width:90px;flex-shrink:0}
-  .nota-jogador-nome{display:block;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .nota-jogador-media{display:block;font-size:11px;color:var(--text3);margin-top:2px}
-  .nota-slider-wrap{flex:1;min-width:0}
-  .nota-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;outline:none;cursor:pointer;background:linear-gradient(to right,hsl(var(--slider-hue,60),70%,45%) var(--slider-pct,50%),var(--bg3) var(--slider-pct,50%))}
-  .nota-slider:not(.has-value){opacity:0.35}
-  .nota-slider.has-value{opacity:1}
-  .nota-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
-  .nota-slider::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:hsl(var(--slider-hue,60),70%,50%);border:2px solid var(--card);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
-  .nota-slider-labels{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:var(--text3)}
-  .nota-valor-display{font-size:14px;font-weight:700;color:var(--text)}
-  html.light .nota-jogador-row{border-bottom-color:rgba(209,217,230,0.5)}
+/* ===== NOTAS: CAROUSEL GRID 2 COLUNAS ===== */
+  .nota-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px}
+  .nota-cell{display:flex;align-items:center;gap:4px;padding:5px 0;border-bottom:1px solid rgba(36,48,73,0.3)}
+  .nota-cell:nth-last-child(-n+2){border-bottom:none}
+  .nota-bar{width:3px;height:32px;border-radius:2px;flex-shrink:0;transition:background .2s}
+  .nota-info{flex:1;min-width:0;display:flex;flex-direction:column}
+  .nota-name{font-size:11px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nota-avg{font-size:9px;color:var(--text3);margin-top:1px}
+  .nota-num-wrap{width:36px;height:36px;flex-shrink:0;overflow:hidden;position:relative;border-radius:8px;border:1px solid var(--border);background:var(--bg2);-webkit-user-select:none;user-select:none;cursor:grab;touch-action:pan-x}
+  .nota-num-wrap.novote{border-color:var(--text3);background:transparent;opacity:0.5}
+  .nota-strip{display:flex;flex-direction:column;position:absolute;left:0;width:100%;transition:transform 0.2s cubic-bezier(.22,.68,0,.98);will-change:transform}
+  .nota-strip-drag{transition:none}
+  .nota-item{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:var(--text)}
+  .nota-item-x{font-size:13px;color:var(--text3)}
+  .nota-unvote-btn{width:24px;height:24px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;font-family:inherit}
+  .nota-unvote-btn:active{border-color:var(--red);color:var(--red)}
+  html.light .nota-cell{border-bottom-color:rgba(209,217,230,0.5)}
+
+  /* ===== NOTAS DETALHADAS: TABELA PIVOT ===== */
+  .notas-pivot-table{font-size:11px;border-collapse:collapse;white-space:nowrap}
+  .notas-pivot-table th,.notas-pivot-table td{padding:4px 6px;border:1px solid rgba(36,48,73,0.3);text-align:center}
+  .pivot-th-fixed{text-align:left;position:sticky;left:0;background:var(--card);z-index:1;font-weight:700;min-width:70px}
+  .pivot-th-avaliador{font-weight:600;font-size:10px;max-width:50px;overflow:hidden;text-overflow:ellipsis}
+  .pivot-th-media{font-weight:700;background:var(--bg2)}
+  .pivot-td-nome{text-align:left;font-weight:600;position:sticky;left:0;background:var(--card);z-index:1;min-width:70px}
+  .pivot-td-nota{font-variant-numeric:tabular-nums}
+  .pivot-td-vazio{color:var(--text3);opacity:0.4}
+  .pivot-td-media{font-weight:700;background:var(--bg2);font-variant-numeric:tabular-nums}
+  html.light .notas-pivot-table th,html.light .notas-pivot-table td{border-color:rgba(209,217,230,0.5)}
+  html.light .pivot-th-fixed,html.light .pivot-td-nome{background:var(--card)}
   /* ===== SORTEIO DE TIMES ===== */
   .sorteio-times-grid{display:flex;flex-direction:column;gap:12px}
   .sorteio-time-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
