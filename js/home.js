@@ -1,5 +1,6 @@
 // ============================================================
 // home.js - Página inicial: lista de peladas + detalhe
+// Feature: mostrar times sorteados com médias na página de detalhe
 // ============================================================
 
 var homeView = 'list';
@@ -10,7 +11,6 @@ async function loadHome() {
   homePeladaDetalhe = null;
   showSkeleton('homeContent');
 
-  // Buscar apenas peladas ativas
   var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).neq('ativa', false).order('criado_em', { ascending: false });
   allPeladas = p || [];
   peladaAtual = allPeladas.find(function(x) { return x.status !== 'Realizada' && x.status !== 'Encerrada'; }) || allPeladas[0] || null;
@@ -95,21 +95,31 @@ async function loadPeladaDetalhe(p) {
   var results = await Promise.all([
     sb.from('partidas').select('*').eq('pelada_id', pId).eq('grupo_id', grupoAtual.id).eq('status', 'Finalizada').order('numero'),
     sb.from('gols').select('*').eq('pelada_id', pId).eq('grupo_id', grupoAtual.id),
-    sb.from('votos').select('*').eq('pelada_id', pId).eq('grupo_id', grupoAtual.id)
+    sb.from('votos').select('*').eq('pelada_id', pId).eq('grupo_id', grupoAtual.id),
+    sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id)
   ]);
 
   var partidas = results[0].data || [];
   var gols = results[1].data || [];
   var votos = results[2].data || [];
+  var notas = results[3].data || [];
 
   votos = votos.filter(function(v) {
     return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
   });
 
-  renderPeladaDetalhe(p, partidas, gols, votos);
+  // Calcular médias
+  var mediasMap = {};
+  notas.forEach(function(n) {
+    if (!mediasMap[n.avaliado]) mediasMap[n.avaliado] = { soma: 0, count: 0 };
+    mediasMap[n.avaliado].soma += n.nota;
+    mediasMap[n.avaliado].count += 1;
+  });
+
+  renderPeladaDetalhe(p, partidas, gols, votos, mediasMap);
 }
 
-function renderPeladaDetalhe(p, partidas, gols, votos) {
+function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
   var el = $('homeContent');
   var df = p.data;
   try { df = new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR'); } catch(e) {}
@@ -122,6 +132,11 @@ function renderPeladaDetalhe(p, partidas, gols, votos) {
   h += '<div class="pelada-detail-title">' + peladaLabel(p) + '</div>';
   h += '<div class="pelada-detail-date">📅 ' + df + '</div>';
   h += '</div>';
+
+  // Times Sorteados (se salvos)
+  if (p.times_sorteados && p.times_sorteados.length > 0) {
+    h += renderTimesSorteadosHome(p.times_sorteados, mediasMap);
+  }
 
   // Partidas
   if (partidas.length > 0) {
@@ -195,7 +210,75 @@ function renderPeladaDetalhe(p, partidas, gols, votos) {
 }
 
 // ============================================================
-// CÁLCULO DA SELEÇÃO (goleiro + 4 seleção + MVP)
+// TIMES SORTEADOS NA HOME (com médias atualizadas)
+// ============================================================
+function renderTimesSorteadosHome(timesSorteados, mediasMap) {
+  var teamColors = [
+    { nome: 'Time 1', cor: 'var(--blue)', bg: 'var(--blueGlow)', border: 'rgba(59,130,246,0.3)', emoji: '🔵' },
+    { nome: 'Time 2', cor: 'var(--orange)', bg: 'var(--orangeGlow)', border: 'rgba(249,115,22,0.3)', emoji: '🟠' },
+    { nome: 'Time 3', cor: 'var(--green)', bg: 'var(--greenGlow)', border: 'rgba(34,197,94,0.3)', emoji: '🟢' },
+    { nome: 'Time 4', cor: 'var(--purple)', bg: 'var(--purpleGlow)', border: 'rgba(168,85,247,0.3)', emoji: '🟣' },
+    { nome: 'Time 5', cor: 'var(--gold)', bg: 'var(--goldGlow)', border: 'rgba(250,204,21,0.3)', emoji: '🟡' }
+  ];
+
+  var h = '<div class="card">';
+  h += '<div class="card-title">🎲 Times Sorteados</div>';
+  h += '<div class="sorteio-times-grid">';
+
+  timesSorteados.forEach(function(time, idx) {
+    var tc = teamColors[idx] || teamColors[0];
+    var somaRating = 0;
+    var countRating = 0;
+
+    time.forEach(function(j) {
+      // Usar média atualizada do banco se disponível, senão usar o rating salvo
+      var m = mediasMap[j.nome];
+      var rating = m ? (m.soma / m.count) : j.rating;
+      somaRating += rating;
+      countRating++;
+    });
+
+    var mediaTime = countRating > 0 ? somaRating / countRating : 0;
+
+    h += '<div class="sorteio-time-card" style="border-color:' + tc.border + ';">';
+    h += '<div class="sorteio-time-header" style="background:' + tc.bg + ';color:' + tc.cor + ';">';
+    h += '<span>' + tc.emoji + ' ' + tc.nome + ' (' + time.length + ')</span>';
+    h += '<span style="font-size:12px;font-weight:600;">média ' + mediaTime.toFixed(1) + '</span>';
+    h += '</div>';
+
+    time.forEach(function(j) {
+      var m = mediasMap[j.nome];
+      var rating = m ? (m.soma / m.count) : j.rating;
+
+      h += '<div class="sorteio-player-row">';
+      h += '<span class="sorteio-player-name">' + dn(j.nome) + '</span>';
+      h += '<span class="sorteio-player-rating" style="color:' + tc.cor + ';">' + rating.toFixed(1) + '</span>';
+      h += '</div>';
+    });
+
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // Soma total dos times
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px;">';
+  timesSorteados.forEach(function(time, idx) {
+    var tc = teamColors[idx] || teamColors[0];
+    var soma = 0;
+    time.forEach(function(j) {
+      var m = mediasMap[j.nome];
+      soma += m ? (m.soma / m.count) : j.rating;
+    });
+    h += '<span style="font-size:11px;color:' + tc.cor + ';font-weight:600;">' + tc.emoji + ' Total: ' + soma.toFixed(1) + '</span>';
+  });
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+// ============================================================
+// CÁLCULO DA SELEÇÃO
 // ============================================================
 function calcSelecaoPelada(votos) {
   var goleiroCount = {};
