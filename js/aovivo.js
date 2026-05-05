@@ -1,11 +1,13 @@
 // ============================================================
 // aovivo.js - Ao Vivo, partidas, gols, realtime, substituições, sortear times
+// Fix: substituição não duplica jogador que entrou
+// Feature: salvar times sorteados na pelada
 // ============================================================
 
 var aoVivoPresentes = [];
 var teamPicks = {};
-var subPendente = null; // { partida_id, jogador, time } - aguardando seleção do substituto
-var sorteioAtual = null; // resultado do último sorteio: array de arrays de { nome, rating }
+var subPendente = null;
+var sorteioAtual = null;
 
 async function loadAoVivo() {
   var el = $('aoVivoContent');
@@ -44,7 +46,6 @@ async function loadAoVivo() {
   var at = tp.find(function(p) { return p.status === 'EmAndamento'; }) || null;
 
   if (at) {
-    // Buscar gols e substituições em paralelo
     var results = await Promise.all([
       sb.from('gols').select('*').eq('partida_id', at.partida_id).eq('grupo_id', grupoAtual.id).order('timestamp'),
       sb.from('substituicoes').select('*').eq('partida_id', at.partida_id).eq('grupo_id', grupoAtual.id).order('criado_em')
@@ -62,7 +63,7 @@ async function loadAoVivo() {
 }
 
 // ============================================================
-// REI DA MESA: calcular pré-seleção para próxima partida
+// REI DA MESA
 // ============================================================
 function calcPreSelection(allPartidas) {
   var finalizadas = allPartidas.filter(function(p) { return p.status === 'Finalizada'; });
@@ -108,8 +109,6 @@ function calcFicouSide(finalizadas) {
 }
 
 async function resolvePreSelectAndRender(tp, pn, preSelect) {
-  var el = $('aoVivoContent');
-
   if (!preSelect || !preSelect.stayTeam) {
     renderSetupPartida(tp, pn, null);
     return;
@@ -172,7 +171,7 @@ function renderSetupPartida(tp, pn, preSelect) {
     rh += '</div>';
   }
 
-  // Botão de sortear times (aparece se >= 10 presentes)
+  // Botão de sortear times
   var sortearBtn = '';
   if (aoVivoPresentes.length >= 10) {
     sortearBtn = '<button class="btn btn-secondary mt12" onclick="sortearTimes()" style="margin-bottom:16px;">🎲 Sortear Times (' + aoVivoPresentes.length + ' presentes)</button>';
@@ -180,7 +179,12 @@ function renderSetupPartida(tp, pn, preSelect) {
     sortearBtn = '<div style="font-size:12px;color:var(--text3);margin-bottom:12px;text-align:center;">🎲 Sorteio disponível a partir de 10 presentes (' + aoVivoPresentes.length + ' agora)</div>';
   }
 
-  // Painel de sorteio (hidden, preenchido ao sortear)
+  // Mostrar sorteio salvo (se existir na pelada e não houver sorteio ativo na tela)
+  var sorteioSalvoPanel = '';
+  if (peladaAtual.times_sorteados && !sorteioAtual) {
+    sorteioSalvoPanel = renderSorteioSalvo(peladaAtual.times_sorteados);
+  }
+
   var sortearPanel = '<div id="sorteioPanel"></div>';
 
   var po = sa(aoVivoPresentes), ph = '';
@@ -202,6 +206,7 @@ function renderSetupPartida(tp, pn, preSelect) {
 
   el.innerHTML = rh +
     sortearBtn +
+    sorteioSalvoPanel +
     sortearPanel +
     '<div class="card"><div class="card-title">⚽ Partida ' + pn + '</div>' +
     preSelectBanner +
@@ -210,6 +215,57 @@ function renderSetupPartida(tp, pn, preSelect) {
     '<div class="team-counters mt8">🔵 A: <span id="countA">' + cA + '</span>/5 🟠 B: <span id="countB">' + cB + '</span>/5</div></div>' +
     '<button class="btn btn-primary" onclick="iniciarPartida(' + pn + ')">Iniciar ' + pn + '</button>' +
     '<button class="btn btn-danger mt12" onclick="confirmarEncerrarPelada()" style="margin-top:12px;">🏁 Encerrar</button>';
+}
+
+// Render sorteio salvo (do banco)
+function renderSorteioSalvo(timesSorteados) {
+  var teamColors = [
+    { nome: 'Time 1', cor: 'var(--blue)', bg: 'var(--blueGlow)', border: 'rgba(59,130,246,0.3)', emoji: '🔵' },
+    { nome: 'Time 2', cor: 'var(--orange)', bg: 'var(--orangeGlow)', border: 'rgba(249,115,22,0.3)', emoji: '🟠' },
+    { nome: 'Time 3', cor: 'var(--green)', bg: 'var(--greenGlow)', border: 'rgba(34,197,94,0.3)', emoji: '🟢' },
+    { nome: 'Time 4', cor: 'var(--purple)', bg: 'var(--purpleGlow)', border: 'rgba(168,85,247,0.3)', emoji: '🟣' },
+    { nome: 'Time 5', cor: 'var(--gold)', bg: 'var(--goldGlow)', border: 'rgba(250,204,21,0.3)', emoji: '🟡' }
+  ];
+
+  var h = '<div class="card" style="border-color:var(--green);">';
+  h += '<div class="card-title">🎲 Times Sorteados (salvo)</div>';
+  h += '<div class="sorteio-times-grid">';
+
+  timesSorteados.forEach(function(time, idx) {
+    var tc = teamColors[idx] || teamColors[0];
+    var somaRating = 0;
+    time.forEach(function(j) { somaRating += j.rating; });
+    var mediaRating = time.length > 0 ? somaRating / time.length : 0;
+
+    h += '<div class="sorteio-time-card" style="border-color:' + tc.border + ';">';
+    h += '<div class="sorteio-time-header" style="background:' + tc.bg + ';color:' + tc.cor + ';">';
+    h += '<span>' + tc.emoji + ' ' + tc.nome + ' (' + time.length + ')</span>';
+    h += '<span style="font-size:12px;font-weight:600;">média ' + mediaRating.toFixed(1) + '</span>';
+    h += '</div>';
+
+    time.forEach(function(j) {
+      h += '<div class="sorteio-player-row">';
+      h += '<span class="sorteio-player-name">' + dn(j.nome) + '</span>';
+      h += '<span class="sorteio-player-rating" style="color:' + tc.cor + ';">' + j.rating.toFixed(1) + '</span>';
+      h += '</div>';
+    });
+
+    h += '<div class="sorteio-actions">';
+    h += '<button class="sorteio-action-btn sorteio-action-a" onclick="alocarTimeSorteado(' + idx + ',\'A\',true)">→ 🔵 Time A</button>';
+    h += '<button class="sorteio-action-btn sorteio-action-b" onclick="alocarTimeSorteado(' + idx + ',\'B\',true)">→ 🟠 Time B</button>';
+    h += '</div>';
+
+    h += '</div>';
+  });
+  h += '</div>';
+
+  h += '<button class="btn btn-secondary mt12" onclick="sortearTimes()" style="width:100%;">🎲 Sortear novamente</button>';
+  h += '</div>';
+
+  // Guardar em sorteioAtual para os botões de alocar funcionarem
+  sorteioAtual = timesSorteados;
+
+  return h;
 }
 
 function pickPlayer(c) {
@@ -234,7 +290,7 @@ function pickPlayer(c) {
 }
 
 // ============================================================
-// SORTEAR TIMES: força bruta com amostragem (otimiza médias iguais)
+// SORTEAR TIMES
 // ============================================================
 
 function calcNumTimes(n) {
@@ -243,7 +299,6 @@ function calcNumTimes(n) {
   return 5;
 }
 
-// Fisher-Yates shuffle (in-place)
 function shuffleArray(arr) {
   for (var i = arr.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
@@ -254,43 +309,9 @@ function shuffleArray(arr) {
   return arr;
 }
 
-// Gera uma distribuição aleatória e retorna a diferença máxima entre médias
-function gerarDistribuicaoAleatoria(ratings, numTimes, tamanhos) {
-  // ratings = array de números (rating de cada jogador), já embaralhado
-  // tamanhos = array com tamanho de cada time [5,5,4]
-  // Retorna { indices: array de arrays de índices, diffMedia: number }
-
-  var times = [];
-  var idx = 0;
-  for (var t = 0; t < numTimes; t++) {
-    var timeIndices = [];
-    for (var j = 0; j < tamanhos[t]; j++) {
-      timeIndices.push(idx);
-      idx++;
-    }
-    times.push(timeIndices);
-  }
-
-  // Calcular média de cada time
-  var maxMedia = -Infinity;
-  var minMedia = Infinity;
-  for (var t = 0; t < numTimes; t++) {
-    var soma = 0;
-    for (var j = 0; j < times[t].length; j++) {
-      soma += ratings[times[t][j]];
-    }
-    var media = soma / times[t].length;
-    if (media > maxMedia) maxMedia = media;
-    if (media < minMedia) minMedia = media;
-  }
-
-  return { indices: times, diffMedia: maxMedia - minMedia };
-}
-
 function distribuirJogadoresBruteForce(jogadores, numTimes) {
   var n = jogadores.length;
 
-  // Calcular tamanhos dos times
   var base = Math.floor(n / numTimes);
   var extras = n % numTimes;
   var tamanhos = [];
@@ -298,22 +319,19 @@ function distribuirJogadoresBruteForce(jogadores, numTimes) {
     tamanhos.push(i < extras ? base + 1 : base);
   }
 
-  // Array de ratings para cálculo rápido
   var ratings = jogadores.map(function(j) { return j.rating; });
 
-  // Array de índices para embaralhar
   var indices = [];
   for (var i = 0; i < n; i++) indices.push(i);
 
   var melhorDiff = Infinity;
   var melhorOrdem = indices.slice();
   var MAX_ITERACOES = 100000;
-  var EARLY_EXIT = 0.1; // diferença de média aceitável para parar
+  var EARLY_EXIT = 0.1;
 
   for (var iter = 0; iter < MAX_ITERACOES; iter++) {
     shuffleArray(indices);
 
-    // Calcular diff inline (sem criar objetos, para performance)
     var maxMedia = -Infinity;
     var minMedia = Infinity;
     var pos = 0;
@@ -336,7 +354,6 @@ function distribuirJogadoresBruteForce(jogadores, numTimes) {
     }
   }
 
-  // Montar times com a melhor ordem encontrada
   var times = [];
   var pos = 0;
   for (var t = 0; t < numTimes; t++) {
@@ -356,11 +373,9 @@ async function sortearTimes() {
   if (!panel) return;
   panel.innerHTML = '<div style="text-align:center;padding:20px;"><div class="loader"></div><div style="color:var(--text2);font-size:13px;margin-top:8px;">Buscando avaliações...</div></div>';
 
-  // Buscar notas médias de todos os presentes
   var { data: notas } = await sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id);
   notas = notas || [];
 
-  // Calcular média por jogador
   var somaNotas = {};
   var countNotas = {};
   notas.forEach(function(n) {
@@ -369,10 +384,9 @@ async function sortearTimes() {
     countNotas[n.avaliado]++;
   });
 
-  // Montar array de presentes com rating
   var semNota = [];
   var jogadoresComRating = aoVivoPresentes.map(function(nome) {
-    var media = 5.0; // default
+    var media = 5.0;
     var temNota = false;
     if (somaNotas[nome] !== undefined && countNotas[nome] > 0) {
       media = somaNotas[nome] / countNotas[nome];
@@ -393,10 +407,8 @@ function executarSorteio(jogadoresComRating, semNota) {
   var numTimes = calcNumTimes(jogadoresComRating.length);
   var times = distribuirJogadoresBruteForce(jogadoresComRating, numTimes);
 
-  // Guardar sorteio atual para uso nos botões
   sorteioAtual = times;
 
-  // Cores dos times
   var teamColors = [
     { nome: 'Time 1', cor: 'var(--blue)', bg: 'var(--blueGlow)', border: 'rgba(59,130,246,0.3)', emoji: '🔵' },
     { nome: 'Time 2', cor: 'var(--orange)', bg: 'var(--orangeGlow)', border: 'rgba(249,115,22,0.3)', emoji: '🟠' },
@@ -408,14 +420,12 @@ function executarSorteio(jogadoresComRating, semNota) {
   var h = '<div class="card" style="border-color:var(--green);">';
   h += '<div class="card-title">🎲 Times Sorteados</div>';
 
-  // Aviso de jogadores sem nota
   if (semNota.length > 0) {
     h += '<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 14px;background:var(--goldGlow);border:1px solid rgba(250,204,21,0.3);border-radius:10px;margin-bottom:14px;font-size:12px;color:var(--gold);">';
     h += '<span style="flex-shrink:0;">⚠️</span><span>' + semNota.length + ' jogador(es) sem avaliação (rating padrão 5.0): ' + semNota.map(function(n) { return dn(n); }).join(', ') + '</span>';
     h += '</div>';
   }
 
-  // Render cards dos times
   h += '<div class="sorteio-times-grid">';
   times.forEach(function(time, idx) {
     var tc = teamColors[idx];
@@ -429,7 +439,6 @@ function executarSorteio(jogadoresComRating, semNota) {
     h += '<span style="font-size:12px;font-weight:600;">média ' + mediaRating.toFixed(1) + '</span>';
     h += '</div>';
 
-    // Jogadores
     time.forEach(function(j) {
       var notaClass = j.temNota ? '' : ' style="opacity:0.6;font-style:italic;"';
       h += '<div class="sorteio-player-row">';
@@ -438,7 +447,6 @@ function executarSorteio(jogadoresComRating, semNota) {
       h += '</div>';
     });
 
-    // Botões para alocar no Time A ou B
     h += '<div class="sorteio-actions">';
     h += '<button class="sorteio-action-btn sorteio-action-a" onclick="alocarTimeSorteado(' + idx + ',\'A\')">→ 🔵 Time A</button>';
     h += '<button class="sorteio-action-btn sorteio-action-b" onclick="alocarTimeSorteado(' + idx + ',\'B\')">→ 🟠 Time B</button>';
@@ -448,7 +456,6 @@ function executarSorteio(jogadoresComRating, semNota) {
   });
   h += '</div>';
 
-  // Diferença entre médias dos times
   var medias = times.map(function(t) {
     var s = 0;
     t.forEach(function(j) { s += j.rating; });
@@ -464,13 +471,15 @@ function executarSorteio(jogadoresComRating, semNota) {
   h += '<span style="font-weight:700;color:' + diffColor + ';">' + diff.toFixed(2) + '</span>';
   h += '</div>';
 
-  h += '<button class="btn btn-secondary mt12" onclick="resortearTimes()" style="width:100%;">🎲 Sortear novamente</button>';
+  h += '<div style="display:flex;gap:8px;margin-top:12px;">';
+  h += '<button class="btn btn-secondary" onclick="resortearTimes()" style="flex:1;">🎲 Sortear novamente</button>';
+  h += '<button class="btn btn-primary" onclick="salvarSorteio()" style="flex:1;">💾 Salvar</button>';
+  h += '</div>';
   h += '</div>';
 
   panel.innerHTML = h;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  // Guardar dados para resortear sem refetch
   window._sorteioDados = { jogadoresComRating: jogadoresComRating, semNota: semNota };
 }
 
@@ -480,24 +489,36 @@ function resortearTimes() {
   executarSorteio(dados.jogadoresComRating, dados.semNota);
 }
 
-function alocarTimeSorteado(sorteioIdx, targetTeam) {
-  if (!sorteioAtual || !sorteioAtual[sorteioIdx]) return;
+async function salvarSorteio() {
+  if (!sorteioAtual) return;
 
-  var jogadores = sorteioAtual[sorteioIdx];
+  var { error: e } = await sb.from('peladas').update({
+    times_sorteados: sorteioAtual
+  }).eq('id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
 
-  // Limpar picks do targetTeam atual
+  if (e) { showToast('Erro ao salvar: ' + e.message, true); return; }
+
+  peladaAtual.times_sorteados = sorteioAtual;
+  showToast('💾 Times sorteados salvos!');
+  logAsync(currentUser, 'SALVAR_SORTEIO', peladaAtual.id);
+}
+
+function alocarTimeSorteado(sorteioIdx, targetTeam, fromSaved) {
+  var source = fromSaved && peladaAtual.times_sorteados ? peladaAtual.times_sorteados : sorteioAtual;
+  if (!source || !source[sorteioIdx]) return;
+
+  var jogadores = source[sorteioIdx];
+
   for (var k in teamPicks) {
     if (teamPicks[k] === targetTeam) {
       teamPicks[k] = null;
     }
   }
 
-  // Alocar jogadores do time sorteado
   jogadores.forEach(function(j) {
     teamPicks[j.nome] = targetTeam;
   });
 
-  // Atualizar visual dos chips
   var chips = document.querySelectorAll('#playerPool .pool-chip');
   chips.forEach(function(c) {
     var n = c.getAttribute('data-player');
@@ -506,7 +527,6 @@ function alocarTimeSorteado(sorteioIdx, targetTeam) {
     else c.className = 'pool-chip';
   });
 
-  // Atualizar contadores
   var cA = 0, cB = 0;
   for (var k in teamPicks) { if (teamPicks[k] === 'A') cA++; if (teamPicks[k] === 'B') cB++; }
   if ($('countA')) $('countA').textContent = cA;
@@ -534,7 +554,7 @@ async function iniciarPartida(num) {
 }
 
 // ============================================================
-// PARTIDA ATIVA: render com substituições
+// PARTIDA ATIVA: render com substituições (BUG FIX item 3)
 // ============================================================
 function renderPartidaAtiva(part, gols, subs, tp) {
   var el = $('aoVivoContent');
@@ -548,22 +568,39 @@ function renderPartidaAtiva(part, gols, subs, tp) {
   var saiuB = {};
   subsB.forEach(function(s) { saiuB[s.jogador_saiu] = true; });
 
-  var entrouA = subsA.map(function(s) { return s.jogador_entrou; });
-  var entrouB = subsB.map(function(s) { return s.jogador_entrou; });
+  // FIX: coletar substitutos como Set para evitar duplicatas
+  var entrouASet = {};
+  subsA.forEach(function(s) { entrouASet[s.jogador_entrou] = true; });
+  var entrouBSet = {};
+  subsB.forEach(function(s) { entrouBSet[s.jogador_entrou] = true; });
 
-  var allA = (part.time_a || []).concat(entrouA);
-  var allB = (part.time_b || []).concat(entrouB);
+  var entrouA = Object.keys(entrouASet);
+  var entrouB = Object.keys(entrouBSet);
+
+  // FIX: allA/allB usa Set para unificar originais + substitutos sem duplicatas
+  var allASet = {};
+  (part.time_a || []).forEach(function(n) { if (n) allASet[n.trim()] = true; });
+  entrouA.forEach(function(n) { allASet[n] = true; });
+
+  var allBSet = {};
+  (part.time_b || []).forEach(function(n) { if (n) allBSet[n.trim()] = true; });
+  entrouB.forEach(function(n) { allBSet[n] = true; });
 
   var todosNoJogo = {};
-  allA.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
-  allB.forEach(function(n) { if (n) todosNoJogo[n.trim()] = true; });
+  Object.keys(allASet).forEach(function(n) { todosNoJogo[n] = true; });
+  Object.keys(allBSet).forEach(function(n) { todosNoJogo[n] = true; });
 
-  function bTR(pl, substitutos, saiuMap, tl, subsCount) {
-    var allPlayers = sa(pl.concat(substitutos));
+  function bTR(originalTeam, entrouSet, saiuMap, tl, subsCount) {
+    // FIX: construir lista única de jogadores: originais + substitutos (sem duplicatas)
+    var playerSet = {};
+    originalTeam.forEach(function(n) { if (n) playerSet[n.trim()] = true; });
+    Object.keys(entrouSet).forEach(function(n) { playerSet[n] = true; });
+    var allPlayers = sa(Object.keys(playerSet));
+
     var h = '';
     allPlayers.forEach(function(n) {
       var isSaiu = saiuMap[n] === true;
-      var isSub = substitutos.indexOf(n) > -1;
+      var isSub = entrouSet[n] === true;
 
       var nameHtml = '<span class="team-player-name"';
       if (isSaiu) nameHtml += ' style="text-decoration:line-through;opacity:0.5;"';
@@ -588,8 +625,8 @@ function renderPartidaAtiva(part, gols, subs, tp) {
     return h;
   }
 
-  var teamAHtml = bTR(part.time_a || [], entrouA, saiuA, 'A', subsA.length);
-  var teamBHtml = bTR(part.time_b || [], entrouB, saiuB, 'B', subsB.length);
+  var teamAHtml = bTR(part.time_a || [], entrouASet, saiuA, 'A', subsA.length);
+  var teamBHtml = bTR(part.time_b || [], entrouBSet, saiuB, 'B', subsB.length);
 
   var subInfoA = subsA.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsA.length + '/3)</span>' : '';
   var subInfoB = subsB.length > 0 ? ' <span style="font-size:11px;font-weight:400;color:var(--text2);">(🔄 ' + subsB.length + '/3)</span>' : '';
