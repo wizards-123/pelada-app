@@ -1,8 +1,10 @@
 // ============================================================
 // votar.js - Sistema de Notas (avaliação de jogadores)
+// Carousel vertical com 2 colunas, botão desvotar, tabela pivot ADM
 // ============================================================
 
-var notasLocais = {};            // { nomeJogador: nota } cache local enquanto edita
+var notasLocais = {};            // { nomeJogador: nota } cache local
+var votarMensaisSet = {};        // { nome: true } para ordenação na tabela ADM
 
 async function loadVotar() {
   var el = $('votarContent');
@@ -19,7 +21,6 @@ async function loadVotarNotas() {
   var el = $('votarContent');
   el.innerHTML = '<div class="skeleton"></div>';
 
-  // Buscar em paralelo: jogadores, mensalistas ativos, minhas notas, todas as notas
   var jogPromise = sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id);
   var mensPromise = sb.from('mensalistas').select('jogador').eq('grupo_id', grupoAtual.id).is('mes_fim', null);
   var minhasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id).eq('avaliador', currentUser);
@@ -32,11 +33,9 @@ async function loadVotarNotas() {
   var minhasNotas = results[2].data || [];
   var todasNotas = results[3].data || [];
 
-  // Mapa de notas do avaliador
   notasLocais = {};
   minhasNotas.forEach(function(n) { notasLocais[n.avaliado] = n.nota; });
 
-  // Mapa de médias
   var mediasMap = {};
   todasNotas.forEach(function(n) {
     if (!mediasMap[n.avaliado]) mediasMap[n.avaliado] = { soma: 0, count: 0 };
@@ -44,15 +43,14 @@ async function loadVotarNotas() {
     mediasMap[n.avaliado].count += 1;
   });
 
-  // Separar mensais e avulsos (excluindo o próprio jogador)
-  var mensaisSet = {};
-  mensalistas.forEach(function(m) { mensaisSet[m] = true; });
+  votarMensaisSet = {};
+  mensalistas.forEach(function(m) { votarMensaisSet[m] = true; });
 
   var listaMensais = [];
   var listaAvulsos = [];
   jogadores.forEach(function(nome) {
     if (nome === currentUser) return;
-    if (mensaisSet[nome]) listaMensais.push(nome);
+    if (votarMensaisSet[nome]) listaMensais.push(nome);
     else listaAvulsos.push(nome);
   });
 
@@ -62,38 +60,34 @@ async function loadVotarNotas() {
   renderNotasForm(listaMensais, listaAvulsos, mediasMap, todasNotas);
 }
 
+// ============================================================
+// RENDER: grid 2 colunas com carousel vertical
+// ============================================================
 function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
   var el = $('votarContent');
   var h = '';
 
-  h += '<div class="section-desc">Dê notas de 0 a 10 para cada jogador. As notas serão usadas para equilibrar a divisão de times.</div>';
+  h += '<div class="section-desc" style="font-size:13px;">Dê notas de 0 a 10 para cada jogador. Arraste o número para cima/baixo. As notas serão usadas para equilibrar a divisão de times.</div>';
 
-  // Contagem de notas dadas
   var totalJogadores = mensais.length + avulsos.length;
   var totalAvaliados = 0;
   mensais.concat(avulsos).forEach(function(n) {
     if (notasLocais[n] !== undefined) totalAvaliados++;
   });
 
-  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:16px;">Avaliados: <span style="font-weight:600;color:var(--green);">' + totalAvaliados + '</span>/' + totalJogadores + '</div>';
+  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:12px;">Avaliados: <span style="font-weight:600;color:var(--green);">' + totalAvaliados + '</span>/' + totalJogadores + '</div>';
 
-  // Mensais
   if (mensais.length > 0) {
     h += '<div class="card">';
     h += '<div class="card-title">📋 Mensalistas</div>';
-    mensais.forEach(function(nome) {
-      h += buildNotaRow(nome, mediasMap);
-    });
+    h += '<div class="nota-grid" id="notaGridMensais"></div>';
     h += '</div>';
   }
 
-  // Avulsos
   if (avulsos.length > 0) {
     h += '<div class="card">';
     h += '<div class="card-title">🏃 Avulsos</div>';
-    avulsos.forEach(function(nome) {
-      h += buildNotaRow(nome, mediasMap);
-    });
+    h += '<div class="nota-grid" id="notaGridAvulsos"></div>';
     h += '</div>';
   }
 
@@ -101,99 +95,164 @@ function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
     h += '<div class="empty-state"><span class="emoji">📭</span>Nenhum jogador cadastrado no grupo.</div>';
   }
 
-  // Bloco ADM: Notas Detalhadas
   if (isAdm && todasNotas && todasNotas.length > 0) {
-    h += renderNotasDetalhadasAdm(todasNotas);
+    h += renderNotasDetalhadasAdm(todasNotas, mensais, avulsos);
   }
 
   el.innerHTML = h;
 
-  // Sincronizar visual dos sliders que já têm nota
-  mensais.concat(avulsos).forEach(function(nome) {
-    var slider = document.querySelector('.nota-slider[data-jogador="' + nome + '"]');
-    if (slider) updateSliderVisual(slider);
+  // Inicializar carousels
+  if (mensais.length > 0) initNotaGrid('notaGridMensais', mensais, mediasMap);
+  if (avulsos.length > 0) initNotaGrid('notaGridAvulsos', avulsos, mediasMap);
+}
+
+function getNotaColor(v) {
+  if (v === null || v === undefined) return 'var(--text3)';
+  if (v <= 2) return '#e24b4a';
+  if (v <= 4) return '#d85a30';
+  if (v <= 6) return '#ba7517';
+  if (v <= 8) return '#639922';
+  return '#1d9e75';
+}
+
+function initNotaGrid(containerId, jogadores, mediasMap) {
+  var container = $(containerId);
+  if (!container) return;
+
+  // VALS: null(unvote), 0, 1, 2, ..., 10, null(unvote)
+  var VALS = [null, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, null];
+  var IH = 36;
+
+  jogadores.forEach(function(nome, pi) {
+    var notaAtual = notasLocais[nome];
+    var media = mediasMap[nome];
+    var mediaStr = media ? (media.soma / media.count).toFixed(1) : '—';
+    var uid = containerId + '_' + pi;
+
+    var cell = document.createElement('div');
+    cell.className = 'nota-cell';
+
+    // Barra de cor
+    var bar = document.createElement('div');
+    bar.className = 'nota-bar';
+    bar.id = 'nb_' + uid;
+    bar.style.background = getNotaColor(notaAtual);
+
+    // Info
+    var info = document.createElement('div');
+    info.className = 'nota-info';
+    var nameSpan = '<span class="nota-name">' + dn(nome) + '</span>';
+    var avgSpan = isAdm ? '<span class="nota-avg">Média: ' + mediaStr + '</span>' : '';
+    info.innerHTML = nameSpan + avgSpan;
+
+    // Número (carousel vertical)
+    var nw = document.createElement('div');
+    nw.className = 'nota-num-wrap' + (notaAtual === undefined ? ' novote' : '');
+    nw.id = 'nn_' + uid;
+
+    var strip = document.createElement('div');
+    strip.className = 'nota-strip';
+    strip.id = 'ns_' + uid;
+
+    VALS.forEach(function(v) {
+      var d = document.createElement('div');
+      d.className = 'nota-item';
+      if (v === null) {
+        d.classList.add('nota-item-x');
+        d.textContent = '✕';
+      } else {
+        d.textContent = v;
+      }
+      strip.appendChild(d);
+    });
+
+    nw.appendChild(strip);
+
+    // Botão desvotar
+    var xb = document.createElement('button');
+    xb.className = 'nota-unvote-btn';
+    xb.textContent = '✕';
+    xb.title = 'Desvotar';
+
+    cell.appendChild(bar);
+    cell.appendChild(info);
+    cell.appendChild(nw);
+    cell.appendChild(xb);
+    container.appendChild(cell);
+
+    // Estado inicial
+    var activeIdx = notaAtual !== undefined ? notaAtual + 1 : 0;
+
+    // Snap sem animação
+    (function() {
+      strip.classList.add('nota-strip-drag');
+      strip.style.transform = 'translateY(' + (-activeIdx * IH) + 'px)';
+      requestAnimationFrame(function() { strip.classList.remove('nota-strip-drag'); });
+    })();
+
+    // Botão desvotar handler
+    xb.addEventListener('click', function() {
+      activeIdx = 0;
+      strip.style.transform = 'translateY(0px)';
+      nw.classList.add('novote');
+      bar.style.background = getNotaColor(null);
+      salvarDesvoto(nome);
+    });
+
+    // Drag/swipe vertical
+    (function() {
+      var startY = 0, startOff = 0, dragging = false, curOff = 0;
+
+      function onStart(ey) {
+        dragging = true;
+        startY = ey;
+        strip.classList.add('nota-strip-drag');
+        var t = strip.style.transform;
+        var m = t.match(/translateY\((.+?)px\)/);
+        startOff = m ? parseFloat(m[1]) : 0;
+        curOff = startOff;
+      }
+      function onMove(ey) {
+        if (!dragging) return;
+        curOff = startOff + (ey - startY);
+        strip.style.transform = 'translateY(' + curOff + 'px)';
+      }
+      function onEnd() {
+        if (!dragging) return;
+        dragging = false;
+        strip.classList.remove('nota-strip-drag');
+        var nearest = Math.round(-curOff / IH);
+        nearest = Math.max(0, Math.min(VALS.length - 1, nearest));
+        activeIdx = nearest;
+        strip.style.transform = 'translateY(' + (-nearest * IH) + 'px)';
+
+        var val = VALS[nearest];
+        if (val === null) {
+          nw.classList.add('novote');
+          bar.style.background = getNotaColor(null);
+          salvarDesvoto(nome);
+        } else {
+          nw.classList.remove('novote');
+          bar.style.background = getNotaColor(val);
+          salvarNota(nome, val);
+        }
+      }
+
+      nw.addEventListener('mousedown', function(e) { e.preventDefault(); onStart(e.clientY); });
+      document.addEventListener('mousemove', function(e) { if (dragging) { e.preventDefault(); onMove(e.clientY); } });
+      document.addEventListener('mouseup', function() { onEnd(); });
+      nw.addEventListener('touchstart', function(e) { onStart(e.touches[0].clientY); }, { passive: true });
+      nw.addEventListener('touchmove', function(e) { if (dragging) { e.preventDefault(); onMove(e.touches[0].clientY); } }, { passive: false });
+      nw.addEventListener('touchend', function() { onEnd(); });
+    })();
   });
 }
 
-function buildNotaRow(nome, mediasMap) {
-  var notaAtual = notasLocais[nome];
-  var temNota = notaAtual !== undefined;
-  var valorSlider = temNota ? notaAtual : 5;
-  var media = mediasMap[nome];
-  var mediaStr = media ? (media.soma / media.count).toFixed(1) : '—';
-  var mediaCount = media ? media.count : 0;
-  var safeId = nome.replace(/[^a-zA-Z0-9]/g, '_');
-
-  var h = '';
-  h += '<div class="nota-jogador-row">';
-  h += '<div class="nota-jogador-info">';
-  h += '<span class="nota-jogador-nome">' + dn(nome) + '</span>';
-  // Média visível apenas para ADMs
-  if (isAdm) {
-    h += '<span class="nota-jogador-media" title="Média de ' + mediaCount + ' avaliação(ões)">Média: ' + mediaStr + '</span>';
-  }
-  h += '</div>';
-  h += '<div class="nota-slider-wrap">';
-  h += '<input type="range" min="0" max="10" step="1" value="' + valorSlider + '" class="nota-slider' + (temNota ? ' has-value' : '') + '" data-jogador="' + nome + '" oninput="onNotaSliderInput(this)" onchange="onNotaSliderChange(this)">';
-  h += '<div class="nota-slider-labels"><span>0</span><span class="nota-valor-display" id="notaVal_' + safeId + '">' + (temNota ? notaAtual : '—') + '</span><span>10</span></div>';
-  h += '</div>';
-  h += '</div>';
-  return h;
-}
-
 // ============================================================
-// NOTAS DETALHADAS (ADM)
+// SALVAR NOTA / DESVOTO
 // ============================================================
-function renderNotasDetalhadasAdm(todasNotas) {
-  var sorted = todasNotas.slice().sort(function(a, b) {
-    var cmp = a.avaliado.localeCompare(b.avaliado);
-    if (cmp !== 0) return cmp;
-    return a.avaliador.localeCompare(b.avaliador);
-  });
-
-  var h = '<div class="card mt16">';
-  h += '<div class="card-title">🔍 Notas Detalhadas (ADM)</div>';
-  h += '<div style="overflow-x:auto;">';
-  h += '<table class="log-table">';
-  h += '<tr><th>Avaliado</th><th>Avaliador</th><th>Nota</th></tr>';
-  sorted.forEach(function(n) {
-    h += '<tr>';
-    h += '<td>' + dn(n.avaliado) + '</td>';
-    h += '<td>' + dn(n.avaliador) + '</td>';
-    h += '<td style="font-weight:600;">' + n.nota + '</td>';
-    h += '</tr>';
-  });
-  h += '</table></div>';
-  h += '</div>';
-  return h;
-}
-
-// ============================================================
-// SLIDER HELPERS
-// ============================================================
-function updateSliderVisual(slider) {
-  var val = parseInt(slider.value);
-  var pct = (val / 10) * 100;
-  var hue = (val / 10) * 120;
-  slider.style.setProperty('--slider-pct', pct + '%');
-  slider.style.setProperty('--slider-hue', hue);
-}
-
-function onNotaSliderInput(slider) {
-  var nome = slider.getAttribute('data-jogador');
-  var val = parseInt(slider.value);
-  var safeId = nome.replace(/[^a-zA-Z0-9]/g, '_');
-  var display = $('notaVal_' + safeId);
-  if (display) display.textContent = val;
-  slider.classList.add('has-value');
-  updateSliderVisual(slider);
-}
-
-async function onNotaSliderChange(slider) {
-  var nome = slider.getAttribute('data-jogador');
-  var novaNota = parseInt(slider.value);
+async function salvarNota(nome, novaNota) {
   var notaAnterior = notasLocais[nome];
-
   if (notaAnterior !== undefined && notaAnterior === novaNota) return;
 
   var { error: e } = await sb.from('notas_jogadores').upsert({
@@ -215,6 +274,117 @@ async function onNotaSliderChange(slider) {
   });
 
   notasLocais[nome] = novaNota;
+  updateNotaCounter();
   showToast(dn(nome) + ': nota ' + novaNota + ' ✓');
   logAsync(currentUser, 'NOTA', nome + ' = ' + novaNota);
+}
+
+async function salvarDesvoto(nome) {
+  var notaAnterior = notasLocais[nome];
+  if (notaAnterior === undefined) return;
+
+  var { error: e } = await sb.from('notas_jogadores')
+    .delete()
+    .eq('grupo_id', grupoAtual.id)
+    .eq('avaliador', currentUser)
+    .eq('avaliado', nome);
+
+  if (e) { showToast('Erro ao desvotar: ' + e.message, true); return; }
+
+  await sb.from('notas_jogadores_historico').insert({
+    grupo_id: grupoAtual.id,
+    avaliador: currentUser,
+    avaliado: nome,
+    nota_anterior: notaAnterior,
+    nota_nova: null
+  });
+
+  delete notasLocais[nome];
+  updateNotaCounter();
+  showToast(dn(nome) + ': voto removido ✕');
+  logAsync(currentUser, 'DESVOTO', nome);
+}
+
+function updateNotaCounter() {
+  var counterEl = document.querySelector('#votarContent .section-desc + div > span');
+  if (!counterEl) return;
+  var count = Object.keys(notasLocais).length;
+  counterEl.textContent = count;
+}
+
+// ============================================================
+// NOTAS DETALHADAS (ADM) - TABELA PIVOT
+// Linhas = avaliados, Colunas = avaliadores
+// Última linha = média do jogador
+// Ordem: mensais (alfa) depois não-mensais (alfa)
+// ============================================================
+function renderNotasDetalhadasAdm(todasNotas, mensais, avulsos) {
+  // Coletar todos os avaliados e avaliadores únicos
+  var avaliadosSet = {};
+  var avaliadoresSet = {};
+  todasNotas.forEach(function(n) {
+    avaliadosSet[n.avaliado] = true;
+    avaliadoresSet[n.avaliador] = true;
+  });
+
+  // Função de ordenação: mensais primeiro (alfa), depois não-mensais (alfa)
+  function sortPeladaOrder(a, b) {
+    var aM = votarMensaisSet[a] ? 0 : 1;
+    var bM = votarMensaisSet[b] ? 0 : 1;
+    if (aM !== bM) return aM - bM;
+    return a.localeCompare(b);
+  }
+
+  var avaliados = Object.keys(avaliadosSet).sort(sortPeladaOrder);
+  var avaliadores = Object.keys(avaliadoresSet).sort(sortPeladaOrder);
+
+  // Mapa: avaliado -> avaliador -> nota
+  var notaMap = {};
+  todasNotas.forEach(function(n) {
+    if (!notaMap[n.avaliado]) notaMap[n.avaliado] = {};
+    notaMap[n.avaliado][n.avaliador] = n.nota;
+  });
+
+  var h = '<div class="card mt16">';
+  h += '<div class="card-title">🔍 Notas Detalhadas (ADM)</div>';
+  h += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+  h += '<table class="log-table notas-pivot-table">';
+
+  // Header: vazio + avaliadores (nomes curtos)
+  h += '<thead><tr><th class="pivot-th-fixed">Jogador</th>';
+  avaliadores.forEach(function(av) {
+    var short = dn(av);
+    if (short.length > 6) short = short.substring(0, 5) + '…';
+    h += '<th class="pivot-th-avaliador" title="' + dn(av) + '">' + short + '</th>';
+  });
+  h += '<th class="pivot-th-media">Média</th>';
+  h += '</tr></thead>';
+
+  // Body: linhas = avaliados
+  h += '<tbody>';
+  avaliados.forEach(function(jogador) {
+    var soma = 0, count = 0;
+    h += '<tr>';
+    h += '<td class="pivot-td-nome">' + dn(jogador) + '</td>';
+    avaliadores.forEach(function(av) {
+      var nota = notaMap[jogador] && notaMap[jogador][av] !== undefined ? notaMap[jogador][av] : null;
+      if (nota !== null) {
+        soma += nota;
+        count++;
+        var color = getNotaColor(nota);
+        h += '<td class="pivot-td-nota" style="color:' + color + ';font-weight:600;">' + nota + '</td>';
+      } else {
+        h += '<td class="pivot-td-nota pivot-td-vazio">—</td>';
+      }
+    });
+    var media = count > 0 ? (soma / count).toFixed(1) : '—';
+    var mediaColor = count > 0 ? getNotaColor(Math.round(soma / count)) : 'var(--text3)';
+    h += '<td class="pivot-td-media" style="color:' + mediaColor + ';">' + media + '</td>';
+    h += '</tr>';
+  });
+  h += '</tbody>';
+
+  h += '</table></div>';
+  h += '</div>';
+  return h;
 }
