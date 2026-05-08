@@ -1,21 +1,20 @@
 // ============================================================
-// votar.js - Sistema de Notas (avaliação de jogadores)
-// Carousel vertical com 2 colunas, botão desvotar, tabela pivot ADM
+// votar.js - Sistema de Notas (avaliacao de jogadores)
+// Carousel vertical com 2 colunas, botao desvotar, tabela pivot ADM
 // ============================================================
 
-var notasLocais = {};            // { nomeJogador: nota } cache local
-var votarMensaisSet = {};        // { nome: true } para ordenação na tabela ADM
+var notasLocais = {};
+var votarMensaisSet = {};
 
 async function loadVotar() {
   var el = $('votarContent');
   if (!peladaAtual) { el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada.</div>'; return; }
-
   el.innerHTML = '<div class="skeleton"></div>';
   await loadVotarNotas();
 }
 
 // ============================================================
-// NOTAS (sistema de avaliação)
+// NOTAS (sistema de avaliacao)
 // ============================================================
 async function loadVotarNotas() {
   var el = $('votarContent');
@@ -67,7 +66,7 @@ function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
   var el = $('votarContent');
   var h = '';
 
-  h += '<div class="section-desc" style="font-size:13px;">Dê notas de 0 a 10 para cada jogador. Arraste o número para cima/baixo. As notas serão usadas para equilibrar a divisão de times.</div>';
+  h += '<div class="section-desc" style="font-size:13px;">De notas de 0 a 10 para cada jogador. Arraste o numero para cima/baixo. As notas serao usadas para equilibrar a divisao de times.</div>';
 
   var totalJogadores = mensais.length + avulsos.length;
   var totalAvaliados = 0;
@@ -101,7 +100,6 @@ function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
 
   el.innerHTML = h;
 
-  // Inicializar carousels
   if (mensais.length > 0) initNotaGrid('notaGridMensais', mensais, mediasMap);
   if (avulsos.length > 0) initNotaGrid('notaGridAvulsos', avulsos, mediasMap);
 }
@@ -119,33 +117,29 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
   var container = $(containerId);
   if (!container) return;
 
-  // VALS: null(unvote), 0, 1, 2, ..., 10, null(unvote)
   var VALS = [null, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, null];
   var IH = 36;
 
   jogadores.forEach(function(nome, pi) {
     var notaAtual = notasLocais[nome];
     var media = mediasMap[nome];
-    var mediaStr = media ? (media.soma / media.count).toFixed(1) : '—';
+    var mediaStr = media ? (media.soma / media.count).toFixed(1) : '\u2014';
     var uid = containerId + '_' + pi;
 
     var cell = document.createElement('div');
     cell.className = 'nota-cell';
 
-    // Barra de cor
     var bar = document.createElement('div');
     bar.className = 'nota-bar';
     bar.id = 'nb_' + uid;
     bar.style.background = getNotaColor(notaAtual);
 
-    // Info
     var info = document.createElement('div');
     info.className = 'nota-info';
     var nameSpan = '<span class="nota-name">' + dn(nome) + '</span>';
-    var avgSpan = isAdm ? '<span class="nota-avg">Média: ' + mediaStr + '</span>' : '';
+    var avgSpan = isAdm ? '<span class="nota-avg">Media: ' + mediaStr + '</span>' : '';
     info.innerHTML = nameSpan + avgSpan;
 
-    // Número (carousel vertical)
     var nw = document.createElement('div');
     nw.className = 'nota-num-wrap' + (notaAtual === undefined ? ' novote' : '');
     nw.id = 'nn_' + uid;
@@ -159,7 +153,7 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
       d.className = 'nota-item';
       if (v === null) {
         d.classList.add('nota-item-x');
-        d.textContent = '✕';
+        d.textContent = '\u2715';
       } else {
         d.textContent = v;
       }
@@ -168,10 +162,9 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
 
     nw.appendChild(strip);
 
-    // Botão desvotar
     var xb = document.createElement('button');
     xb.className = 'nota-unvote-btn';
-    xb.textContent = '✕';
+    xb.textContent = '\u2715';
     xb.title = 'Desvotar';
 
     cell.appendChild(bar);
@@ -180,17 +173,14 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
     cell.appendChild(xb);
     container.appendChild(cell);
 
-    // Estado inicial
     var activeIdx = notaAtual !== undefined ? notaAtual + 1 : 0;
 
-    // Snap sem animação
     (function() {
       strip.classList.add('nota-strip-drag');
       strip.style.transform = 'translateY(' + (-activeIdx * IH) + 'px)';
       requestAnimationFrame(function() { strip.classList.remove('nota-strip-drag'); });
     })();
 
-    // Botão desvotar handler
     xb.addEventListener('click', function() {
       activeIdx = 0;
       strip.style.transform = 'translateY(0px)';
@@ -199,7 +189,6 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
       salvarDesvoto(nome);
     });
 
-    // Drag/swipe vertical
     (function() {
       var startY = 0, startOff = 0, dragging = false, curOff = 0;
 
@@ -275,7 +264,7 @@ async function salvarNota(nome, novaNota) {
 
   notasLocais[nome] = novaNota;
   updateNotaCounter();
-  showToast(dn(nome) + ': nota ' + novaNota + ' ✓');
+  showToast(dn(nome) + ': nota ' + novaNota + ' \u2713');
   logAsync(currentUser, 'NOTA', nome + ' = ' + novaNota);
 }
 
@@ -301,7 +290,7 @@ async function salvarDesvoto(nome) {
 
   delete notasLocais[nome];
   updateNotaCounter();
-  showToast(dn(nome) + ': voto removido ✕');
+  showToast(dn(nome) + ': voto removido \u2715');
   logAsync(currentUser, 'DESVOTO', nome);
 }
 
@@ -313,78 +302,171 @@ function updateNotaCounter() {
 }
 
 // ============================================================
-// NOTAS DETALHADAS (ADM) - TABELA PIVOT
-// Linhas = avaliados, Colunas = avaliadores
-// Última linha = média do jogador
-// Ordem: mensais (alfa) depois não-mensais (alfa)
+// NOTAS DETALHADAS (ADM) - 2 TABELAS PIVOT + ORDENACAO
+// Tabela 1: Mensalistas | Tabela 2: Diaristas (avulsos)
+// Cada tabela: linhas = avaliados, colunas = avaliadores, ultima = media
+// Click no header ordena asc/desc
 // ============================================================
+
+// Estado de ordenacao por tabela
+var pivotSortState = {};
+
 function renderNotasDetalhadasAdm(todasNotas, mensais, avulsos) {
-  // Coletar todos os avaliados e avaliadores únicos
+  // Separar notas por tipo
+  var notasMensais = todasNotas.filter(function(n) { return votarMensaisSet[n.avaliado]; });
+  var notasAvulsos = todasNotas.filter(function(n) { return !votarMensaisSet[n.avaliado]; });
+
+  var h = '';
+
+  if (notasMensais.length > 0) {
+    h += buildPivotTable('pivotMensais', '\uD83D\uDD0D Notas Detalhadas: Mensalistas', notasMensais);
+  }
+
+  if (notasAvulsos.length > 0) {
+    h += buildPivotTable('pivotAvulsos', '\uD83D\uDD0D Notas Detalhadas: Diaristas', notasAvulsos);
+  }
+
+  return h;
+}
+
+function buildPivotTable(tableId, title, notas) {
   var avaliadosSet = {};
   var avaliadoresSet = {};
-  todasNotas.forEach(function(n) {
+  notas.forEach(function(n) {
     avaliadosSet[n.avaliado] = true;
     avaliadoresSet[n.avaliador] = true;
   });
 
-  // Função de ordenação: mensais primeiro (alfa), depois não-mensais (alfa)
-  function sortPeladaOrder(a, b) {
-    var aM = votarMensaisSet[a] ? 0 : 1;
-    var bM = votarMensaisSet[b] ? 0 : 1;
-    if (aM !== bM) return aM - bM;
-    return a.localeCompare(b);
-  }
+  var avaliados = Object.keys(avaliadosSet).sort(function(a, b) { return a.localeCompare(b); });
+  var avaliadores = Object.keys(avaliadoresSet).sort(function(a, b) { return a.localeCompare(b); });
 
-  var avaliados = Object.keys(avaliadosSet).sort(sortPeladaOrder);
-  var avaliadores = Object.keys(avaliadoresSet).sort(sortPeladaOrder);
-
-  // Mapa: avaliado -> avaliador -> nota
   var notaMap = {};
-  todasNotas.forEach(function(n) {
+  notas.forEach(function(n) {
     if (!notaMap[n.avaliado]) notaMap[n.avaliado] = {};
     notaMap[n.avaliado][n.avaliador] = n.nota;
   });
 
-  var h = '<div class="card mt16">';
-  h += '<div class="card-title">🔍 Notas Detalhadas (ADM)</div>';
-  h += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
-  h += '<table class="log-table notas-pivot-table">';
+  // Inicializar estado de ordenacao
+  if (!pivotSortState[tableId]) {
+    pivotSortState[tableId] = { col: null, dir: null };
+  }
 
-  // Header: vazio + avaliadores (nomes curtos)
-  h += '<thead><tr><th class="pivot-th-fixed">Jogador</th>';
+  var h = '<div class="card mt16">';
+  h += '<div class="card-title">' + title + '</div>';
+  h += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+  h += '<table class="log-table notas-pivot-table" id="' + tableId + '">';
+
+  // Header
+  h += '<thead><tr><th class="pivot-th-fixed pivot-sortable" data-table="' + tableId + '" data-col="nome" onclick="sortPivotTable(\'' + tableId + '\',\'nome\')">Jogador ' + getSortArrow(tableId, 'nome') + '</th>';
   avaliadores.forEach(function(av) {
     var short = dn(av);
-    if (short.length > 6) short = short.substring(0, 5) + '…';
-    h += '<th class="pivot-th-avaliador" title="' + dn(av) + '">' + short + '</th>';
+    if (short.length > 6) short = short.substring(0, 5) + '\u2026';
+    h += '<th class="pivot-th-avaliador pivot-sortable" title="' + dn(av) + '" data-table="' + tableId + '" data-col="av_' + av + '" onclick="sortPivotTable(\'' + tableId + '\',\'av_' + av.replace(/'/g, "\\'") + '\')">' + short + ' ' + getSortArrow(tableId, 'av_' + av) + '</th>';
   });
-  h += '<th class="pivot-th-media">Média</th>';
+  h += '<th class="pivot-th-media pivot-sortable" data-table="' + tableId + '" data-col="media" onclick="sortPivotTable(\'' + tableId + '\',\'media\')">' + 'Media ' + getSortArrow(tableId, 'media') + '</th>';
   h += '</tr></thead>';
 
-  // Body: linhas = avaliados
-  h += '<tbody>';
-  avaliados.forEach(function(jogador) {
+  // Calcular dados para ordenacao
+  var rows = avaliados.map(function(jogador) {
     var soma = 0, count = 0;
-    h += '<tr>';
-    h += '<td class="pivot-td-nome">' + dn(jogador) + '</td>';
+    var rowData = { nome: jogador, notas: {}, media: null };
     avaliadores.forEach(function(av) {
       var nota = notaMap[jogador] && notaMap[jogador][av] !== undefined ? notaMap[jogador][av] : null;
+      rowData.notas[av] = nota;
+      if (nota !== null) { soma += nota; count++; }
+    });
+    rowData.media = count > 0 ? soma / count : null;
+    return rowData;
+  });
+
+  // Aplicar ordenacao
+  var st = pivotSortState[tableId];
+  if (st.col && st.dir) {
+    rows.sort(function(a, b) {
+      var va, vb;
+      if (st.col === 'nome') {
+        va = a.nome; vb = b.nome;
+        return st.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      } else if (st.col === 'media') {
+        va = a.media; vb = b.media;
+      } else if (st.col.indexOf('av_') === 0) {
+        var avKey = st.col.substring(3);
+        va = a.notas[avKey]; vb = b.notas[avKey];
+      }
+      // nulls sempre por ultimo
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return st.dir === 'asc' ? va - vb : vb - va;
+    });
+  }
+
+  // Body
+  h += '<tbody>';
+  rows.forEach(function(row) {
+    h += '<tr>';
+    h += '<td class="pivot-td-nome">' + dn(row.nome) + '</td>';
+    avaliadores.forEach(function(av) {
+      var nota = row.notas[av];
       if (nota !== null) {
-        soma += nota;
-        count++;
         var color = getNotaColor(nota);
         h += '<td class="pivot-td-nota" style="color:' + color + ';font-weight:600;">' + nota + '</td>';
       } else {
-        h += '<td class="pivot-td-nota pivot-td-vazio">—</td>';
+        h += '<td class="pivot-td-nota pivot-td-vazio">\u2014</td>';
       }
     });
-    var media = count > 0 ? (soma / count).toFixed(1) : '—';
-    var mediaColor = count > 0 ? getNotaColor(Math.round(soma / count)) : 'var(--text3)';
-    h += '<td class="pivot-td-media" style="color:' + mediaColor + ';">' + media + '</td>';
+    var mediaStr = row.media !== null ? row.media.toFixed(1) : '\u2014';
+    var mediaColor = row.media !== null ? getNotaColor(Math.round(row.media)) : 'var(--text3)';
+    h += '<td class="pivot-td-media" style="color:' + mediaColor + ';">' + mediaStr + '</td>';
     h += '</tr>';
   });
   h += '</tbody>';
 
-  h += '</table></div>';
-  h += '</div>';
+  h += '</table></div></div>';
+
+  // Guardar dados para re-render
+  window['_pivotData_' + tableId] = { notas: notas, title: title };
+
   return h;
+}
+
+function getSortArrow(tableId, col) {
+  var st = pivotSortState[tableId];
+  if (!st || st.col !== col) return '<span class="pivot-sort-arrow">\u2195</span>';
+  if (st.dir === 'asc') return '<span class="pivot-sort-arrow active">\u25B2</span>';
+  return '<span class="pivot-sort-arrow active">\u25BC</span>';
+}
+
+function sortPivotTable(tableId, col) {
+  var st = pivotSortState[tableId];
+  if (!st) { pivotSortState[tableId] = { col: null, dir: null }; st = pivotSortState[tableId]; }
+
+  if (st.col === col) {
+    // Ciclo: asc -> desc -> reset
+    if (st.dir === 'asc') { st.dir = 'desc'; }
+    else if (st.dir === 'desc') { st.col = null; st.dir = null; }
+  } else {
+    st.col = col;
+    st.dir = col === 'nome' ? 'asc' : 'desc';
+  }
+
+  // Re-render a tabela especifica
+  var data = window['_pivotData_' + tableId];
+  if (!data) return;
+
+  // Separar avaliados em mensais/avulsos para reconstruir
+  var avaliadosSet = {};
+  data.notas.forEach(function(n) { avaliadosSet[n.avaliado] = true; });
+  var avaliados = Object.keys(avaliadosSet);
+
+  var el = document.getElementById(tableId);
+  if (!el) return;
+
+  var wrapper = el.closest('.card');
+  if (!wrapper) return;
+
+  var newHtml = buildPivotTable(tableId, data.title, data.notas);
+  var temp = document.createElement('div');
+  temp.innerHTML = newHtml;
+  wrapper.replaceWith(temp.firstElementChild);
 }
