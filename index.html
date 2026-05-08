@@ -231,6 +231,27 @@
   .sorteio-action-b:active{background:var(--orangeGlow);border-color:var(--orange);color:var(--orange)}
   html.light .sorteio-player-row{border-bottom-color:rgba(209,217,230,0.5)}
   html.light .sorteio-actions{border-top-color:rgba(209,217,230,0.5)}
+
+  /* Pivot sortable headers */
+  .pivot-sortable {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    white-space: nowrap;
+  }
+  .pivot-sortable:hover {
+    background: var(--card-hover, rgba(255,255,255,0.05));
+  }
+  .pivot-sort-arrow {
+    font-size: 10px;
+    opacity: 0.3;
+    margin-left: 2px;
+  }
+  .pivot-sort-arrow.active {
+    opacity: 1;
+    color: var(--green);
+  }
+  
 </style>
 </head>
 <body>
