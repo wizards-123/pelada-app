@@ -1,6 +1,6 @@
 // ============================================================
 // home.js - Página inicial: lista de peladas + detalhe
-// Feature: mostrar times sorteados com médias na página de detalhe
+// Feature: ADM pode editar partidas finalizadas no detalhe
 // ============================================================
 
 var homeView = 'list';
@@ -91,6 +91,9 @@ async function loadPeladaDetalhe(p) {
   var el = $('homeContent');
   el.innerHTML = '<div class="skeleton"></div>';
 
+  // Atualizar peladaAtual para que o editSavePartida saiba redirecionar
+  peladaAtual = p;
+
   var pId = p.id;
   var results = await Promise.all([
     sb.from('partidas').select('*').eq('pelada_id', pId).eq('grupo_id', grupoAtual.id).eq('status', 'Finalizada').order('numero'),
@@ -108,7 +111,6 @@ async function loadPeladaDetalhe(p) {
     return v.premio === 'Goleiro' || v.premio === 'MVP' || v.premio === 'Selecao';
   });
 
-  // Calcular médias
   var mediasMap = {};
   notas.forEach(function(n) {
     if (!mediasMap[n.avaliado]) mediasMap[n.avaliado] = { soma: 0, count: 0 };
@@ -133,7 +135,7 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
   h += '<div class="pelada-detail-date">📅 ' + df + '</div>';
   h += '</div>';
 
-  // Times Sorteados (se salvos)
+  // Times Sorteados
   if (p.times_sorteados && p.times_sorteados.length > 0) {
     h += renderTimesSorteadosHome(p.times_sorteados, mediasMap);
   }
@@ -156,7 +158,14 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
       });
 
       h += '<div class="partida-detail-block' + (isLast ? '' : ' partida-detail-border') + '">';
-      h += '<div style="font-size:13px;font-weight:700;margin-bottom:12px;">Partida ' + pt.numero + '</div>';
+
+      // Cabeçalho da partida com botão editar
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
+      h += '<span style="font-size:13px;font-weight:700;">Partida ' + pt.numero + '</span>';
+      if (isAdm) {
+        h += '<button class="btn-edit-partida" onclick="editPartidaHome(\'' + pt.partida_id + '\')">✏️ Editar</button>';
+      }
+      h += '</div>';
 
       h += '<div class="partida-placar-row">';
       h += '<div class="partida-placar-side"><div class="partida-placar-label">🔵 Time A</div><div class="partida-placar-num partida-placar-a">' + pt.placar_a + '</div></div>';
@@ -195,6 +204,10 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
       h += '</div>';
 
       h += '</div>';
+
+      // Zona de edição inline
+      h += '<div id="editZone_' + pt.partida_id.replace(/[^a-zA-Z0-9_]/g, '_') + '"></div>';
+
       h += '</div>';
     });
     h += '</div>';
@@ -207,6 +220,15 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
   h += renderCampoSelecao(selecao);
 
   el.innerHTML = h;
+}
+
+// ============================================================
+// EDITAR PARTIDA A PARTIR DA HOME (redireciona para lógica compartilhada em aovivo.js)
+// ============================================================
+async function editPartidaHome(partidaId) {
+  // Usa a mesma lógica de edição do aovivo.js
+  // O editSavePartida já verifica homeView === 'detail' para recarregar corretamente
+  await editPartidaAoVivo(partidaId);
 }
 
 // ============================================================
@@ -227,11 +249,9 @@ function renderTimesSorteadosHome(timesSorteados, mediasMap) {
 
   timesSorteados.forEach(function(time, idx) {
     var tc = teamColors[idx] || teamColors[0];
-    var somaRating = 0;
-    var countRating = 0;
+    var somaRating = 0, countRating = 0;
 
     time.forEach(function(j) {
-      // Usar média atualizada do banco se disponível, senão usar o rating salvo
       var m = mediasMap[j.nome];
       var rating = m ? (m.soma / m.count) : j.rating;
       somaRating += rating;
@@ -260,7 +280,6 @@ function renderTimesSorteadosHome(timesSorteados, mediasMap) {
   });
   h += '</div>';
 
-  // Soma total dos times
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px;">';
   timesSorteados.forEach(function(time, idx) {
     var tc = teamColors[idx] || teamColors[0];
@@ -281,20 +300,12 @@ function renderTimesSorteadosHome(timesSorteados, mediasMap) {
 // CÁLCULO DA SELEÇÃO
 // ============================================================
 function calcSelecaoPelada(votos) {
-  var goleiroCount = {};
-  var selecaoCount = {};
-  var mvpCount = {};
+  var goleiroCount = {}, selecaoCount = {}, mvpCount = {};
 
   votos.forEach(function(v) {
-    if (v.premio === 'Goleiro') {
-      goleiroCount[v.votado] = (goleiroCount[v.votado] || 0) + 1;
-    }
-    if (v.premio === 'Selecao') {
-      selecaoCount[v.votado] = (selecaoCount[v.votado] || 0) + 1;
-    }
-    if (v.premio === 'MVP') {
-      mvpCount[v.votado] = (mvpCount[v.votado] || 0) + 1;
-    }
+    if (v.premio === 'Goleiro') goleiroCount[v.votado] = (goleiroCount[v.votado] || 0) + 1;
+    if (v.premio === 'Selecao') selecaoCount[v.votado] = (selecaoCount[v.votado] || 0) + 1;
+    if (v.premio === 'MVP') mvpCount[v.votado] = (mvpCount[v.votado] || 0) + 1;
   });
 
   var goleiroSorted = Object.keys(goleiroCount).map(function(n) {
@@ -390,8 +401,7 @@ function renderCampoSelecao(selecao) {
     s += '<text x="' + px + '" y="' + (py + 1) + '" class="campo-player-text" text-anchor="middle" dominant-baseline="middle">' + shortName(nome) + '</text>';
 
     if (isMvp) {
-      var sx = px + 18;
-      var sy = py - 22;
+      var sx = px + 18, sy = py - 22;
       s += '<g transform="translate(' + sx + ',' + sy + ')">';
       s += '<polygon points="12,0 14.9,8.2 23.5,8.2 16.6,13.3 19,21.5 12,16.8 5,21.5 7.4,13.3 0.5,8.2 9.1,8.2" fill="#facc15" stroke="#ca8a04" stroke-width="0.8"/>';
       s += '<text x="12" y="13.5" text-anchor="middle" dominant-baseline="middle" font-family="DM Sans, sans-serif" font-size="5.5" font-weight="700" fill="#713f12">MVP</text>';
@@ -399,8 +409,7 @@ function renderCampoSelecao(selecao) {
     }
 
     if (isGK) {
-      var gx = px + 17;
-      var gy = py - 23;
+      var gx = px + 17, gy = py - 23;
       s += '<g transform="translate(' + gx + ',' + gy + ')">';
       s += '<rect x="0" y="4" width="16" height="14" rx="3" fill="#22c55e" stroke="#16a34a" stroke-width="0.8"/>';
       s += '<rect x="1" y="0" width="3.5" height="8" rx="1.5" fill="#22c55e" stroke="#16a34a" stroke-width="0.6"/>';
