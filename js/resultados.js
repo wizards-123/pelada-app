@@ -523,11 +523,7 @@ function buildEvolutionData(gols, partidas, presenca) {
   });
 
   for (var i = 0; i < series.length; i++) {
-    if (i < EVO_COLORS.length) {
-      series[i].color = EVO_COLORS[i];
-    } else {
-      series[i].color = null;
-    }
+    series[i].color = i < EVO_COLORS.length ? EVO_COLORS[i] : null;
     series[i].rank = i + 1;
   }
 
@@ -544,8 +540,6 @@ function buildEvolutionData(gols, partidas, presenca) {
     }
   });
 
-  var totalPoints = labels.length;
-
   var maxPts = 0;
   series.forEach(function(s) {
     s.values.forEach(function(v) { if (v > maxPts) maxPts = v; });
@@ -555,8 +549,56 @@ function buildEvolutionData(gols, partidas, presenca) {
     labels: labels,
     series: series,
     maxPts: maxPts,
-    numPeladas: totalPoints
+    numPeladas: labels.length
   };
+}
+
+// ============================================================
+// DETECT WHICH FILTER BUTTON MATCHES CURRENT SELECTION
+// ============================================================
+function detectActiveFilter(data) {
+  if (!data || data.series.length === 0) return '';
+
+  var highlighted = {};
+  var count = 0;
+  data.series.forEach(function(s, i) {
+    if (isPlayerHighlighted(s.name, i)) {
+      highlighted[s.name] = true;
+      count++;
+    }
+  });
+
+  var total = data.series.length;
+
+  if (count === 0) return 'nenhum';
+  if (count === total) return 'todos';
+
+  // Top 5 check
+  var top5n = Math.min(evoDefaultTop, total);
+  if (count === top5n) {
+    var isTop5 = true;
+    for (var t = 0; t < top5n; t++) {
+      if (!highlighted[data.series[t].name]) { isTop5 = false; break; }
+    }
+    if (isTop5) return 'top5';
+  }
+
+  // Mensais check
+  if (evoMensalistas.length > 0) {
+    var mensaisInChart = [];
+    data.series.forEach(function(s) {
+      if (evoMensalistas.indexOf(s.name) > -1) mensaisInChart.push(s.name);
+    });
+    if (mensaisInChart.length > 0 && count === mensaisInChart.length) {
+      var allMatch = true;
+      for (var m = 0; m < mensaisInChart.length; m++) {
+        if (!highlighted[mensaisInChart[m]]) { allMatch = false; break; }
+      }
+      if (allMatch) return 'mensais';
+    }
+  }
+
+  return '';
 }
 
 // ============================================================
@@ -566,14 +608,16 @@ function renderEvoLegend(data) {
   var wrap = $('evoLegendWrap');
   if (!wrap) return;
 
+  var af = detectActiveFilter(data);
   var h = '';
 
   // Filter buttons
   h += '<div class="evo-filter-row">';
-  h += '<button class="evo-filter-btn" onclick="evoFilterTodos()">Todos</button>';
-  h += '<button class="evo-filter-btn" onclick="evoFilterNenhum()">Nenhum</button>';
+  h += '<button class="evo-filter-btn' + (af === 'todos' ? ' evo-f-on' : '') + '" onclick="evoFilterTodos()">Todos</button>';
+  h += '<button class="evo-filter-btn' + (af === 'top5' ? ' evo-f-on' : '') + '" onclick="evoFilterTop5()">Top 5</button>';
+  h += '<button class="evo-filter-btn' + (af === 'nenhum' ? ' evo-f-on' : '') + '" onclick="evoFilterNenhum()">Nenhum</button>';
   if (evoMensalistas.length > 0) {
-    h += '<button class="evo-filter-btn evo-filter-mensal" onclick="evoFilterMensais()">Mensais</button>';
+    h += '<button class="evo-filter-btn evo-filter-mensal' + (af === 'mensais' ? ' evo-f-mensal-on' : '') + '" onclick="evoFilterMensais()">Mensais</button>';
   }
   h += '</div>';
 
@@ -600,11 +644,25 @@ function isPlayerHighlighted(name, idx) {
   return idx < evoDefaultTop;
 }
 
+// --- Filter button handlers ---
 function evoFilterTodos() {
   evoManualMode = true;
   evoHighlighted = {};
   if (evoChartData) {
     evoChartData.series.forEach(function(s) { evoHighlighted[s.name] = true; });
+  }
+  renderEvoLegend(evoChartData);
+  drawEvoChart();
+}
+
+function evoFilterTop5() {
+  evoManualMode = true;
+  evoHighlighted = {};
+  if (evoChartData) {
+    var n = Math.min(evoDefaultTop, evoChartData.series.length);
+    for (var i = 0; i < n; i++) {
+      evoHighlighted[evoChartData.series[i].name] = true;
+    }
   }
   renderEvoLegend(evoChartData);
   drawEvoChart();
@@ -631,6 +689,7 @@ function evoFilterMensais() {
   drawEvoChart();
 }
 
+// --- Chip toggle ---
 function toggleEvoPlayer(btn) {
   var name = btn.getAttribute('data-player');
 
@@ -680,14 +739,10 @@ function drawEvoChart() {
 
   var isLight = document.documentElement.classList.contains('light');
   var gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
-  var axisTextColor = isLight ? '#64748b' : '#64748b';
+  var axisTextColor = '#64748b';
   var mutedLineColor = isLight ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.12)';
 
-  var ML = 34;
-  var MR = 62;
-  var MT = 16;
-  var MB = 32;
-
+  var ML = 34, MR = 62, MT = 16, MB = 32;
   var plotW = W - ML - MR;
   var plotH = H - MT - MB;
 
@@ -714,10 +769,7 @@ function drawEvoChart() {
   ctx.setLineDash([]);
   for (var g = 0; g <= yMax; g += yStep) {
     var gy = Math.round(yPos(g)) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(ML, gy);
-    ctx.lineTo(W - MR, gy);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ML, gy); ctx.lineTo(W - MR, gy); ctx.stroke();
   }
 
   // Y labels
@@ -732,17 +784,14 @@ function drawEvoChart() {
   // X labels
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  var labelInterval = 1;
-  if (numP > 14) labelInterval = 3;
-  else if (numP > 8) labelInterval = 2;
-
+  var labelInterval = numP > 14 ? 3 : numP > 8 ? 2 : 1;
   for (var xi = 0; xi < numP; xi++) {
     if (xi % labelInterval === 0 || xi === numP - 1) {
       ctx.fillText(data.labels[xi], xPos(xi), MT + plotH + 8);
     }
   }
 
-  // Muted lines (non-highlighted)
+  // Muted lines
   data.series.forEach(function(s, idx) {
     if (isPlayerHighlighted(s.name, idx)) return;
     drawLine(ctx, s.values, xPos, yPos, mutedLineColor, 1.2);
@@ -757,17 +806,9 @@ function drawEvoChart() {
 
     var ex = xPos(numP - 1);
     var ey = yPos(s.values[numP - 1]);
-    ctx.beginPath();
-    ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
 
-    endpointLabels.push({
-      name: s.displayName,
-      pts: s.finalPts,
-      y: ey,
-      color: color
-    });
+    endpointLabels.push({ name: s.displayName, pts: s.finalPts, y: ey, color: color });
   });
 
   resolveOverlaps(endpointLabels, 13);
@@ -775,10 +816,9 @@ function drawEvoChart() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   endpointLabels.forEach(function(lbl) {
-    var lx = xPos(numP - 1) + 8;
     ctx.font = '600 10px "DM Sans", sans-serif';
     ctx.fillStyle = lbl.color;
-    ctx.fillText(truncateName(lbl.name, 7) + ' ' + lbl.pts, lx, lbl.y);
+    ctx.fillText(truncateName(lbl.name, 7) + ' ' + lbl.pts, xPos(numP - 1) + 8, lbl.y);
   });
 
   setupChartTouchHandler(canvas, data, xPos, yPos);
@@ -786,12 +826,8 @@ function drawEvoChart() {
 
 function drawLine(ctx, values, xPos, yPos, color, width) {
   if (values.length === 0) return;
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
   for (var i = 0; i < values.length; i++) {
     if (i === 0) ctx.moveTo(xPos(i), yPos(values[i]));
     else ctx.lineTo(xPos(i), yPos(values[i]));
@@ -811,18 +847,14 @@ function resolveOverlaps(labels, minGap) {
   labels.sort(function(a, b) { return a.y - b.y; });
   for (var i = 1; i < labels.length; i++) {
     var overlap = labels[i - 1].y + minGap - labels[i].y;
-    if (overlap > 0) {
-      labels[i].y = labels[i - 1].y + minGap;
-    }
+    if (overlap > 0) labels[i].y = labels[i - 1].y + minGap;
   }
 }
 
 function truncateName(name, maxLen) {
   if (!name) return '';
-  var parts = name.split(' ');
-  var first = parts[0];
-  if (first.length > maxLen) return first.substring(0, maxLen);
-  return first;
+  var first = name.split(' ')[0];
+  return first.length > maxLen ? first.substring(0, maxLen) : first;
 }
 
 // ============================================================
@@ -846,10 +878,7 @@ function setupChartTouchHandler(canvas, data, xPos, yPos) {
         var lx = xPos(i);
         var ly = yPos(s.values[i]);
         var dist = Math.sqrt((cx - lx) * (cx - lx) + (cy - ly) * (cy - ly));
-        if (dist < closestDist) {
-          closestDist = dist;
-          closest = s;
-        }
+        if (dist < closestDist) { closestDist = dist; closest = s; }
       }
     });
 
@@ -862,11 +891,8 @@ function setupChartTouchHandler(canvas, data, xPos, yPos) {
         });
       }
 
-      if (evoHighlighted[closest.name]) {
-        delete evoHighlighted[closest.name];
-      } else {
-        evoHighlighted[closest.name] = true;
-      }
+      if (evoHighlighted[closest.name]) delete evoHighlighted[closest.name];
+      else evoHighlighted[closest.name] = true;
 
       renderEvoLegend(evoChartData);
       drawEvoChart();
