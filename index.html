@@ -265,6 +265,34 @@
   .edit-actions{display:flex;gap:8px;margin-top:16px}
   .edit-actions .btn{flex:1;font-size:13px;padding:10px}
   
+
+
+  /* ===== EVOLUÇÃO CHART ===== */
+  .evo-subtabs{display:flex;gap:4px;margin-bottom:16px;background:var(--bg2);padding:3px;border-radius:10px}
+  .evo-subtab{flex:1;padding:9px 12px;text-align:center;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;color:var(--text3);transition:all .2s;border:none;background:none;font-family:inherit;white-space:nowrap}
+  .evo-subtab.active{background:var(--card);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+  html.light .evo-subtab.active{box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+  .evo-card{padding:16px 12px !important}
+  .evo-chart-header{margin-bottom:12px}
+  .evo-chart-title{font-family:'Outfit',sans-serif;font-size:16px;font-weight:700;color:var(--text)}
+  .evo-chart-subtitle{font-size:12px;color:var(--text3);margin-top:2px}
+  .evo-canvas-wrap{width:100%;position:relative;margin-bottom:14px}
+  .evo-canvas-wrap canvas{display:block;width:100%;touch-action:pan-y}
+  .evo-legend-wrap{border-top:1px solid var(--border);padding-top:12px}
+  .evo-filter-row{display:flex;gap:6px;margin-bottom:10px}
+  .evo-filter-btn{padding:5px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+  .evo-filter-btn:active{background:var(--greenGlow);border-color:var(--green);color:var(--green)}
+  .evo-filter-mensal{border-color:var(--gold);color:var(--gold);background:var(--goldGlow)}
+  .evo-filter-mensal:active{background:var(--gold);color:#000}
+  .evo-legend-scroll{display:flex;flex-wrap:wrap;gap:6px}
+  .evo-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg2);color:var(--text3);transition:all .15s;font-family:inherit;white-space:nowrap}
+  .evo-chip-on{border-color:var(--chip-color,var(--green));background:rgba(255,255,255,0.04);color:var(--text)}
+  html.light .evo-chip-on{background:rgba(0,0,0,0.03)}
+  .evo-chip:active{transform:scale(0.96)}
+  .evo-chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .evo-chip-name{max-width:80px;overflow:hidden;text-overflow:ellipsis}
+  .evo-chip-pts{font-weight:700;font-variant-numeric:tabular-nums;color:var(--chip-color,var(--text3));font-size:11px}
+
 </style>
 </head>
 <body>
