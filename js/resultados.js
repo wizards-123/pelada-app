@@ -1,5 +1,5 @@
 // ============================================================
-// resultados.js - Ranking, filtro multi-pelada
+// resultados.js - Ranking, filtro multi-pelada, gráfico evolução
 // ============================================================
 
 var resultPeladasSelecionadas = [];
@@ -8,6 +8,21 @@ var resultRankingSortCol = 'pts';
 var resultRankingSortDir = 'desc';
 var resultCachedData = null;
 var resultDropdownOpen = false;
+var resultActiveSubTab = 'ranking';
+
+// --- Evolução chart state ---
+var evoHighlighted = {};
+var evoManualMode = false;
+var evoDefaultTop = 5;
+var evoChartData = null;
+var evoCanvas = null;
+var evoCtx = null;
+var evoMensalistas = [];
+
+var EVO_COLORS = [
+  '#22c55e','#3b82f6','#f97316','#a855f7','#ef4444',
+  '#facc15','#ec4899','#14b8a6','#f59e0b','#6366f1'
+];
 
 async function loadResultados() {
   showSkeleton('resultadosSemana');
@@ -93,7 +108,35 @@ function renderResultadosShell() {
   });
   ddHtml += '</div></div>';
 
-  el.innerHTML = ddHtml + '<div id="resultTabRanking"></div>';
+  var tabHtml = '<div class="evo-subtabs">';
+  tabHtml += '<button class="evo-subtab' + (resultActiveSubTab === 'ranking' ? ' active' : '') + '" onclick="switchResultSubTab(\'ranking\')">📊 Tabela</button>';
+  tabHtml += '<button class="evo-subtab' + (resultActiveSubTab === 'chart' ? ' active' : '') + '" onclick="switchResultSubTab(\'chart\')">📈 Evolução</button>';
+  tabHtml += '</div>';
+
+  el.innerHTML = ddHtml + tabHtml + '<div id="resultTabRanking"></div><div id="resultTabChart" style="display:none;"></div>';
+
+  if (resultActiveSubTab === 'chart') {
+    $('resultTabRanking').style.display = 'none';
+    $('resultTabChart').style.display = 'block';
+  }
+}
+
+function switchResultSubTab(tab) {
+  resultActiveSubTab = tab;
+  var btnAll = document.querySelectorAll('.evo-subtab');
+  btnAll.forEach(function(b) { b.classList.remove('active'); });
+  if (tab === 'ranking') {
+    btnAll[0].classList.add('active');
+    $('resultTabRanking').style.display = 'block';
+    $('resultTabChart').style.display = 'none';
+  } else {
+    btnAll[1].classList.add('active');
+    $('resultTabRanking').style.display = 'none';
+    $('resultTabChart').style.display = 'block';
+    if (resultCachedData) {
+      renderChartView(resultCachedData.gols, resultCachedData.partidas, resultCachedData.presenca);
+    }
+  }
 }
 
 function getPeladaFilterLabel() {
@@ -168,23 +211,38 @@ function updatePeladaFilterLabel() {
 async function refreshResultadosData() {
   if (resultPeladasSelecionadas.length === 0) {
     $('resultTabRanking').innerHTML = '<div class="empty-state"><span class="emoji">🔍</span>Selecione ao menos 1 pelada.</div>';
+    $('resultTabChart').innerHTML = '<div class="empty-state"><span class="emoji">🔍</span>Selecione ao menos 1 pelada.</div>';
     return;
   }
 
   var pIds = resultPeladasSelecionadas;
 
-  // Buscar TODOS os gols (normais + contra)
   var golsPromise = sb.from('gols').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
   var partidasPromise = sb.from('partidas').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds).eq('status', 'Finalizada');
   var presencaPromise = sb.from('presenca').select('*').eq('grupo_id', grupoAtual.id).in('pelada_id', pIds);
+  var mensPromise = sb.from('mensalistas').select('jogador').eq('grupo_id', grupoAtual.id).is('mes_fim', null);
 
-  var results = await Promise.all([golsPromise, partidasPromise, presencaPromise]);
+  var results = await Promise.all([golsPromise, partidasPromise, presencaPromise, mensPromise]);
   var gols = results[0].data || [];
   var partidas = results[1].data || [];
   var presenca = results[2].data || [];
+  var mens = results[3].data || [];
+
+  evoMensalistas = [];
+  var seen = {};
+  mens.forEach(function(m) {
+    if (m.jogador && !seen[m.jogador]) {
+      evoMensalistas.push(m.jogador);
+      seen[m.jogador] = true;
+    }
+  });
 
   resultCachedData = { gols: gols, partidas: partidas, presenca: presenca };
   renderRankingTab(gols, partidas, presenca);
+
+  if (resultActiveSubTab === 'chart') {
+    renderChartView(gols, partidas, presenca);
+  }
 }
 
 // ============================================================
@@ -258,13 +316,11 @@ function buildPlayerStats(gols, partidas, presenca) {
     }
   }
 
-  // Presença
   presenca.forEach(function(pr) {
     ensure(pr.jogador);
     map[pr.jogador].peladaSet[pr.pelada_id] = true;
   });
 
-  // Gols normais e contra
   gols.forEach(function(g) {
     ensure(g.jogador);
     if (g.gol_contra) {
@@ -275,7 +331,6 @@ function buildPlayerStats(gols, partidas, presenca) {
     map[g.jogador].peladaSet[g.pelada_id] = true;
   });
 
-  // Vitórias
   partidas.forEach(function(p) {
     if (!p.vencedor || p.vencedor === 'Empate' || p.vencedor === '') return;
     var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
@@ -288,7 +343,6 @@ function buildPlayerStats(gols, partidas, presenca) {
     });
   });
 
-  // Pontuação: Gol = +1, Vitória = +3, Gol Contra = -1
   var players = Object.keys(map).map(function(nome) {
     var p = map[nome];
     p.peladas = Object.keys(p.peladaSet).length;
@@ -331,7 +385,6 @@ function sortPlayers(players) {
     vb = parseFloat(b[col]) || 0;
     if (va !== vb) return dir === 'desc' ? vb - va : va - vb;
 
-    // Desempate: pts > gols > vitorias
     var tiebreakers = ['pts', 'gols', 'vitorias'];
     for (var i = 0; i < tiebreakers.length; i++) {
       var tk = tiebreakers[i];
@@ -342,4 +395,484 @@ function sortPlayers(players) {
     }
     return 0;
   });
+}
+
+// ============================================================
+// EVOLUÇÃO CHART
+// ============================================================
+function renderChartView(gols, partidas, presenca) {
+  var container = $('resultTabChart');
+  if (!container) return;
+
+  var data = buildEvolutionData(gols, partidas, presenca);
+  evoChartData = data;
+
+  if (!data || data.series.length === 0 || data.labels.length === 0) {
+    container.innerHTML = '<div class="empty-state"><span class="emoji">📈</span>Sem dados suficientes para gerar o gráfico.</div>';
+    return;
+  }
+
+  var h = '';
+  h += '<div class="card evo-card">';
+  h += '<div class="evo-chart-header">';
+  h += '<div class="evo-chart-title">Evolução de Pontos</div>';
+  h += '<div class="evo-chart-subtitle">Pontuação acumulada por pelada</div>';
+  h += '</div>';
+  h += '<div class="evo-canvas-wrap" id="evoCanvasWrap"><canvas id="evoCanvas"></canvas></div>';
+  h += '<div class="evo-legend-wrap" id="evoLegendWrap"></div>';
+  h += '</div>';
+
+  container.innerHTML = h;
+
+  renderEvoLegend(data);
+
+  requestAnimationFrame(function() {
+    drawEvoChart();
+  });
+
+  if (!window._evoResizeHandler) {
+    window._evoResizeHandler = function() {
+      if (resultActiveSubTab === 'chart' && evoChartData) {
+        drawEvoChart();
+      }
+    };
+    window.addEventListener('resize', window._evoResizeHandler);
+  }
+}
+
+function buildEvolutionData(gols, partidas, presenca) {
+  var selPeladas = resultAllPeladas
+    .filter(function(p) { return resultPeladasSelecionadas.indexOf(p.id) > -1; })
+    .slice()
+    .sort(function(a, b) { return (a.data || '').localeCompare(b.data || ''); });
+
+  if (selPeladas.length === 0) return null;
+
+  var golsByPelada = {};
+  var partidasByPelada = {};
+
+  gols.forEach(function(g) {
+    if (!golsByPelada[g.pelada_id]) golsByPelada[g.pelada_id] = [];
+    golsByPelada[g.pelada_id].push(g);
+  });
+
+  partidas.forEach(function(p) {
+    if (!partidasByPelada[p.pelada_id]) partidasByPelada[p.pelada_id] = [];
+    partidasByPelada[p.pelada_id].push(p);
+  });
+
+  var allNames = {};
+  presenca.forEach(function(pr) { allNames[pr.jogador] = true; });
+  gols.forEach(function(g) { allNames[g.jogador] = true; });
+  partidas.forEach(function(p) {
+    if (p.time_a) p.time_a.forEach(function(n) { if (n) allNames[n.trim()] = true; });
+    if (p.time_b) p.time_b.forEach(function(n) { if (n) allNames[n.trim()] = true; });
+  });
+
+  var playerNames = Object.keys(allNames);
+
+  var cumMap = {};
+  playerNames.forEach(function(name) {
+    cumMap[name] = new Array(selPeladas.length).fill(0);
+  });
+
+  selPeladas.forEach(function(pelada, idx) {
+    var pg = golsByPelada[pelada.id] || [];
+    var pp = partidasByPelada[pelada.id] || [];
+    var earned = {};
+
+    pg.forEach(function(g) {
+      if (!earned[g.jogador]) earned[g.jogador] = 0;
+      earned[g.jogador] += g.gol_contra ? -1 : 1;
+    });
+
+    pp.forEach(function(p) {
+      if (!p.vencedor || p.vencedor === 'Empate' || p.vencedor === '') return;
+      var tw = p.vencedor === 'A' ? p.time_a : p.time_b;
+      if (tw) tw.forEach(function(n) {
+        if (!n) return;
+        var nome = n.trim();
+        if (!earned[nome]) earned[nome] = 0;
+        earned[nome] += 3;
+      });
+    });
+
+    playerNames.forEach(function(name) {
+      var prev = idx > 0 ? cumMap[name][idx - 1] : 0;
+      cumMap[name][idx] = prev + (earned[name] || 0);
+    });
+  });
+
+  var series = playerNames.map(function(name) {
+    var vals = cumMap[name];
+    return {
+      name: name,
+      displayName: dn(name),
+      values: vals,
+      finalPts: vals[vals.length - 1]
+    };
+  });
+
+  series = series.filter(function(s) {
+    return s.values.some(function(v) { return v !== 0; });
+  });
+
+  series.sort(function(a, b) {
+    if (b.finalPts !== a.finalPts) return b.finalPts - a.finalPts;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  for (var i = 0; i < series.length; i++) {
+    if (i < EVO_COLORS.length) {
+      series[i].color = EVO_COLORS[i];
+    } else {
+      series[i].color = null;
+    }
+    series[i].rank = i + 1;
+  }
+
+  // Prepend origin (Rodada 0)
+  series.forEach(function(s) { s.values.unshift(0); });
+
+  var labels = ['0'];
+  selPeladas.forEach(function(p) {
+    try {
+      var d = new Date(p.data + 'T12:00:00');
+      labels.push(String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'));
+    } catch (e) {
+      labels.push('P' + labels.length);
+    }
+  });
+
+  var totalPoints = labels.length;
+
+  var maxPts = 0;
+  series.forEach(function(s) {
+    s.values.forEach(function(v) { if (v > maxPts) maxPts = v; });
+  });
+
+  return {
+    labels: labels,
+    series: series,
+    maxPts: maxPts,
+    numPeladas: totalPoints
+  };
+}
+
+// ============================================================
+// LEGEND + FILTER BUTTONS
+// ============================================================
+function renderEvoLegend(data) {
+  var wrap = $('evoLegendWrap');
+  if (!wrap) return;
+
+  var h = '';
+
+  // Filter buttons
+  h += '<div class="evo-filter-row">';
+  h += '<button class="evo-filter-btn" onclick="evoFilterTodos()">Todos</button>';
+  h += '<button class="evo-filter-btn" onclick="evoFilterNenhum()">Nenhum</button>';
+  if (evoMensalistas.length > 0) {
+    h += '<button class="evo-filter-btn evo-filter-mensal" onclick="evoFilterMensais()">Mensais</button>';
+  }
+  h += '</div>';
+
+  // Player chips
+  h += '<div class="evo-legend-scroll">';
+  data.series.forEach(function(s, i) {
+    var isActive = isPlayerHighlighted(s.name, i);
+    var chipColor = isActive ? (s.color || EVO_COLORS[i % EVO_COLORS.length]) : 'var(--text3)';
+    var chipClass = 'evo-chip' + (isActive ? ' evo-chip-on' : '');
+    h += '<button class="' + chipClass + '" data-player="' + s.name.replace(/"/g, '&quot;') + '" data-idx="' + i + '" onclick="toggleEvoPlayer(this)" style="--chip-color:' + chipColor + ';">';
+    h += '<span class="evo-chip-dot" style="background:' + chipColor + ';"></span>';
+    h += '<span class="evo-chip-name">' + s.displayName + '</span>';
+    h += '<span class="evo-chip-pts">' + s.finalPts + '</span>';
+    h += '</button>';
+  });
+  h += '</div>';
+  wrap.innerHTML = h;
+}
+
+function isPlayerHighlighted(name, idx) {
+  if (evoManualMode) {
+    return !!evoHighlighted[name];
+  }
+  return idx < evoDefaultTop;
+}
+
+function evoFilterTodos() {
+  evoManualMode = true;
+  evoHighlighted = {};
+  if (evoChartData) {
+    evoChartData.series.forEach(function(s) { evoHighlighted[s.name] = true; });
+  }
+  renderEvoLegend(evoChartData);
+  drawEvoChart();
+}
+
+function evoFilterNenhum() {
+  evoManualMode = true;
+  evoHighlighted = {};
+  renderEvoLegend(evoChartData);
+  drawEvoChart();
+}
+
+function evoFilterMensais() {
+  evoManualMode = true;
+  evoHighlighted = {};
+  if (evoChartData) {
+    evoChartData.series.forEach(function(s) {
+      if (evoMensalistas.indexOf(s.name) > -1) {
+        evoHighlighted[s.name] = true;
+      }
+    });
+  }
+  renderEvoLegend(evoChartData);
+  drawEvoChart();
+}
+
+function toggleEvoPlayer(btn) {
+  var name = btn.getAttribute('data-player');
+
+  if (!evoManualMode) {
+    evoManualMode = true;
+    evoHighlighted = {};
+    if (evoChartData) {
+      evoChartData.series.forEach(function(s, i) {
+        if (i < evoDefaultTop) evoHighlighted[s.name] = true;
+      });
+    }
+  }
+
+  if (evoHighlighted[name]) {
+    delete evoHighlighted[name];
+  } else {
+    evoHighlighted[name] = true;
+  }
+
+  renderEvoLegend(evoChartData);
+  drawEvoChart();
+}
+
+// ============================================================
+// CANVAS DRAWING
+// ============================================================
+function drawEvoChart() {
+  var wrap = $('evoCanvasWrap');
+  var canvas = $('evoCanvas');
+  if (!wrap || !canvas || !evoChartData) return;
+
+  var data = evoChartData;
+  var W = wrap.clientWidth;
+  var H = Math.min(360, Math.max(280, W * 0.8));
+  var dpr = window.devicePixelRatio || 1;
+
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  evoCanvas = canvas;
+  evoCtx = ctx;
+
+  var isLight = document.documentElement.classList.contains('light');
+  var gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+  var axisTextColor = isLight ? '#64748b' : '#64748b';
+  var mutedLineColor = isLight ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.12)';
+
+  var ML = 34;
+  var MR = 62;
+  var MT = 16;
+  var MB = 32;
+
+  var plotW = W - ML - MR;
+  var plotH = H - MT - MB;
+
+  var maxY = data.maxPts || 10;
+  var yStep = calcYStep(maxY);
+  var yMax = Math.ceil(maxY / yStep) * yStep;
+  if (yMax === 0) yMax = 10;
+
+  var numP = data.numPeladas;
+
+  function xPos(i) {
+    if (numP <= 1) return ML + plotW / 2;
+    return ML + (i / (numP - 1)) * plotW;
+  }
+  function yPos(v) {
+    return MT + plotH - (v / yMax) * plotH;
+  }
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  for (var g = 0; g <= yMax; g += yStep) {
+    var gy = Math.round(yPos(g)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(ML, gy);
+    ctx.lineTo(W - MR, gy);
+    ctx.stroke();
+  }
+
+  // Y labels
+  ctx.font = '10px "DM Sans", sans-serif';
+  ctx.fillStyle = axisTextColor;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (var g2 = 0; g2 <= yMax; g2 += yStep) {
+    ctx.fillText(String(g2), ML - 6, yPos(g2));
+  }
+
+  // X labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  var labelInterval = 1;
+  if (numP > 14) labelInterval = 3;
+  else if (numP > 8) labelInterval = 2;
+
+  for (var xi = 0; xi < numP; xi++) {
+    if (xi % labelInterval === 0 || xi === numP - 1) {
+      ctx.fillText(data.labels[xi], xPos(xi), MT + plotH + 8);
+    }
+  }
+
+  // Muted lines (non-highlighted)
+  data.series.forEach(function(s, idx) {
+    if (isPlayerHighlighted(s.name, idx)) return;
+    drawLine(ctx, s.values, xPos, yPos, mutedLineColor, 1.2);
+  });
+
+  // Highlighted lines
+  var endpointLabels = [];
+  data.series.forEach(function(s, idx) {
+    if (!isPlayerHighlighted(s.name, idx)) return;
+    var color = s.color || EVO_COLORS[idx % EVO_COLORS.length];
+    drawLine(ctx, s.values, xPos, yPos, color, 2.5);
+
+    var ex = xPos(numP - 1);
+    var ey = yPos(s.values[numP - 1]);
+    ctx.beginPath();
+    ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    endpointLabels.push({
+      name: s.displayName,
+      pts: s.finalPts,
+      y: ey,
+      color: color
+    });
+  });
+
+  resolveOverlaps(endpointLabels, 13);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  endpointLabels.forEach(function(lbl) {
+    var lx = xPos(numP - 1) + 8;
+    ctx.font = '600 10px "DM Sans", sans-serif';
+    ctx.fillStyle = lbl.color;
+    ctx.fillText(truncateName(lbl.name, 7) + ' ' + lbl.pts, lx, lbl.y);
+  });
+
+  setupChartTouchHandler(canvas, data, xPos, yPos);
+}
+
+function drawLine(ctx, values, xPos, yPos, color, width) {
+  if (values.length === 0) return;
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.setLineDash([]);
+  for (var i = 0; i < values.length; i++) {
+    if (i === 0) ctx.moveTo(xPos(i), yPos(values[i]));
+    else ctx.lineTo(xPos(i), yPos(values[i]));
+  }
+  ctx.stroke();
+}
+
+function calcYStep(maxVal) {
+  if (maxVal <= 10) return 2;
+  if (maxVal <= 20) return 5;
+  if (maxVal <= 50) return 10;
+  if (maxVal <= 100) return 20;
+  return Math.ceil(maxVal / 5 / 10) * 10;
+}
+
+function resolveOverlaps(labels, minGap) {
+  labels.sort(function(a, b) { return a.y - b.y; });
+  for (var i = 1; i < labels.length; i++) {
+    var overlap = labels[i - 1].y + minGap - labels[i].y;
+    if (overlap > 0) {
+      labels[i].y = labels[i - 1].y + minGap;
+    }
+  }
+}
+
+function truncateName(name, maxLen) {
+  if (!name) return '';
+  var parts = name.split(' ');
+  var first = parts[0];
+  if (first.length > maxLen) return first.substring(0, maxLen);
+  return first;
+}
+
+// ============================================================
+// TOUCH / CLICK INTERACTION
+// ============================================================
+function setupChartTouchHandler(canvas, data, xPos, yPos) {
+  if (canvas._evoTouchHandler) {
+    canvas.removeEventListener('click', canvas._evoTouchHandler);
+  }
+
+  var handler = function(e) {
+    var rect = canvas.getBoundingClientRect();
+    var cx = e.clientX - rect.left;
+    var cy = e.clientY - rect.top;
+
+    var closest = null;
+    var closestDist = 25;
+
+    data.series.forEach(function(s) {
+      for (var i = 0; i < data.numPeladas; i++) {
+        var lx = xPos(i);
+        var ly = yPos(s.values[i]);
+        var dist = Math.sqrt((cx - lx) * (cx - lx) + (cy - ly) * (cy - ly));
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = s;
+        }
+      }
+    });
+
+    if (closest) {
+      if (!evoManualMode) {
+        evoManualMode = true;
+        evoHighlighted = {};
+        evoChartData.series.forEach(function(s, i) {
+          if (i < evoDefaultTop) evoHighlighted[s.name] = true;
+        });
+      }
+
+      if (evoHighlighted[closest.name]) {
+        delete evoHighlighted[closest.name];
+      } else {
+        evoHighlighted[closest.name] = true;
+      }
+
+      renderEvoLegend(evoChartData);
+      drawEvoChart();
+    }
+  };
+
+  canvas.addEventListener('click', handler);
+  canvas._evoTouchHandler = handler;
 }
