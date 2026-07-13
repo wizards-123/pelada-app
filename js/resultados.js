@@ -54,15 +54,17 @@ async function loadResultados() {
 
 // ============================================================
 // VOTE-GATE CHECK
+// Só aplica se houver identidade da votação (votarUser) e não for ADM.
 // ============================================================
 async function checkVoteGate() {
   if (isAdm) return true;
+  if (!votarUser) return true; // ninguém se identificou ainda: libera ranking
 
   var { data: abertas } = await sb.from('peladas').select('id').eq('grupo_id', grupoAtual.id).eq('votacao_aberta', true);
   if (!abertas || abertas.length === 0) return true;
 
   var peladaIds = abertas.map(function(p) { return p.id; });
-  var { data: votos } = await sb.from('votos').select('pelada_id').eq('grupo_id', grupoAtual.id).eq('votante', currentUser).in('pelada_id', peladaIds);
+  var { data: votos } = await sb.from('votos').select('pelada_id').eq('grupo_id', grupoAtual.id).eq('votante', votarUser).in('pelada_id', peladaIds);
 
   var peladasVotadas = {};
   if (votos) {
@@ -527,7 +529,6 @@ function buildEvolutionData(gols, partidas, presenca) {
     series[i].rank = i + 1;
   }
 
-  // Prepend origin (Rodada 0)
   series.forEach(function(s) { s.values.unshift(0); });
 
   var labels = ['0'];
@@ -573,7 +574,6 @@ function detectActiveFilter(data) {
   if (count === 0) return 'nenhum';
   if (count === total) return 'todos';
 
-  // Top 5 check
   var top5n = Math.min(evoDefaultTop, total);
   if (count === top5n) {
     var isTop5 = true;
@@ -583,7 +583,6 @@ function detectActiveFilter(data) {
     if (isTop5) return 'top5';
   }
 
-  // Mensais check
   if (evoMensalistas.length > 0) {
     var mensaisInChart = [];
     data.series.forEach(function(s) {
@@ -611,7 +610,6 @@ function renderEvoLegend(data) {
   var af = detectActiveFilter(data);
   var h = '';
 
-  // Filter buttons
   h += '<div class="evo-filter-row">';
   h += '<button class="evo-filter-btn' + (af === 'todos' ? ' evo-f-on' : '') + '" onclick="evoFilterTodos()">Todos</button>';
   h += '<button class="evo-filter-btn' + (af === 'top5' ? ' evo-f-on' : '') + '" onclick="evoFilterTop5()">Top 5</button>';
@@ -621,7 +619,6 @@ function renderEvoLegend(data) {
   }
   h += '</div>';
 
-  // Player chips
   h += '<div class="evo-legend-scroll">';
   data.series.forEach(function(s, i) {
     var isActive = isPlayerHighlighted(s.name, i);
@@ -644,7 +641,6 @@ function isPlayerHighlighted(name, idx) {
   return idx < evoDefaultTop;
 }
 
-// --- Filter button handlers ---
 function evoFilterTodos() {
   evoManualMode = true;
   evoHighlighted = {};
@@ -689,7 +685,6 @@ function evoFilterMensais() {
   drawEvoChart();
 }
 
-// --- Chip toggle ---
 function toggleEvoPlayer(btn) {
   var name = btn.getAttribute('data-player');
 
@@ -763,7 +758,6 @@ function drawEvoChart() {
 
   ctx.clearRect(0, 0, W, H);
 
-  // Grid
   ctx.strokeStyle = gridColor;
   ctx.lineWidth = 1;
   ctx.setLineDash([]);
@@ -772,7 +766,6 @@ function drawEvoChart() {
     ctx.beginPath(); ctx.moveTo(ML, gy); ctx.lineTo(W - MR, gy); ctx.stroke();
   }
 
-  // Y labels
   ctx.font = '10px "DM Sans", sans-serif';
   ctx.fillStyle = axisTextColor;
   ctx.textAlign = 'right';
@@ -781,7 +774,6 @@ function drawEvoChart() {
     ctx.fillText(String(g2), ML - 6, yPos(g2));
   }
 
-  // X labels
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   var labelInterval = numP > 14 ? 3 : numP > 8 ? 2 : 1;
@@ -791,13 +783,11 @@ function drawEvoChart() {
     }
   }
 
-  // Muted lines
   data.series.forEach(function(s, idx) {
     if (isPlayerHighlighted(s.name, idx)) return;
     drawLine(ctx, s.values, xPos, yPos, mutedLineColor, 1.2);
   });
 
-  // Highlighted lines
   var endpointLabels = [];
   data.series.forEach(function(s, idx) {
     if (!isPlayerHighlighted(s.name, idx)) return;
