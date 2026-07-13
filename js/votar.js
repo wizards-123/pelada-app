@@ -1,6 +1,6 @@
 // ============================================================
 // votar.js - Sistema de Notas (avaliacao de jogadores)
-// Carousel vertical com 2 colunas, botao desvotar, tabela pivot ADM
+// Identidade definida aqui (votarUser), persiste na sessão
 // ============================================================
 
 var notasLocais = {};
@@ -9,8 +9,56 @@ var votarMensaisSet = {};
 async function loadVotar() {
   var el = $('votarContent');
   if (!peladaAtual) { el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>Nenhuma pelada.</div>'; return; }
+
+  // Se ainda não sei quem é o avaliador nesta sessão, pedir o nome
+  if (!votarUser) {
+    await renderVotarIdentityPicker();
+    return;
+  }
+
   el.innerHTML = '<div class="skeleton"></div>';
   await loadVotarNotas();
+}
+
+// ============================================================
+// SELETOR DE IDENTIDADE (só na Votação)
+// ============================================================
+async function renderVotarIdentityPicker() {
+  var el = $('votarContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+
+  var { data: j } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
+  var jogadores = j ? j.map(function(r) { return r.nome; }) : [];
+
+  var opts = '<option value="">Selecione seu nome...</option>';
+  sa(jogadores).forEach(function(n) {
+    opts += '<option value="' + n.replace(/"/g, '&quot;') + '">' + dn(n) + '</option>';
+  });
+
+  var h = '<div class="card">';
+  h += '<div class="card-title">🗳️ Quem é você?</div>';
+  h += '<div class="section-desc" style="font-size:13px;margin-bottom:16px;">Selecione seu nome para dar as notas. Suas notas ficam vinculadas a você.</div>';
+  h += '<div class="vote-category"><label>Seu nome</label>';
+  h += '<select class="vote-select" id="votarIdentitySelect">' + opts + '</select></div>';
+  h += '<button class="btn btn-primary" onclick="confirmarVotarIdentity()">Continuar</button>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+function confirmarVotarIdentity() {
+  var v = $('votarIdentitySelect').value;
+  if (!v) { showToast('Selecione seu nome.', true); return; }
+  votarUser = v;
+  // currentUser reflete a identidade da votação (a menos que ADM esteja destravado)
+  if (!isAdm) currentUser = v;
+  loadVotar();
+}
+
+function trocarVotarIdentity() {
+  votarUser = null;
+  if (!isAdm) currentUser = null;
+  loadVotar();
 }
 
 // ============================================================
@@ -20,9 +68,12 @@ async function loadVotarNotas() {
   var el = $('votarContent');
   el.innerHTML = '<div class="skeleton"></div>';
 
+  // Avaliador é sempre votarUser aqui (identidade da votação)
+  var avaliador = votarUser;
+
   var jogPromise = sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id);
   var mensPromise = sb.from('mensalistas').select('jogador').eq('grupo_id', grupoAtual.id).is('mes_fim', null);
-  var minhasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id).eq('avaliador', currentUser);
+  var minhasNotasPromise = sb.from('notas_jogadores').select('avaliado, nota').eq('grupo_id', grupoAtual.id).eq('avaliador', avaliador);
   var todasNotasPromise = sb.from('notas_jogadores').select('avaliador, avaliado, nota').eq('grupo_id', grupoAtual.id);
 
   var results = await Promise.all([jogPromise, mensPromise, minhasNotasPromise, todasNotasPromise]);
@@ -48,7 +99,7 @@ async function loadVotarNotas() {
   var listaMensais = [];
   var listaAvulsos = [];
   jogadores.forEach(function(nome) {
-    if (nome === currentUser) return;
+    if (nome === avaliador) return;
     if (votarMensaisSet[nome]) listaMensais.push(nome);
     else listaAvulsos.push(nome);
   });
@@ -65,6 +116,12 @@ async function loadVotarNotas() {
 function renderNotasForm(mensais, avulsos, mediasMap, todasNotas) {
   var el = $('votarContent');
   var h = '';
+
+  // Cabeçalho com identidade atual + trocar
+  h += '<div class="flex-between" style="margin-bottom:12px;padding:10px 14px;background:var(--greenGlow);border:1px solid rgba(34,197,94,0.3);border-radius:10px;">';
+  h += '<span style="font-size:13px;color:var(--green);">Avaliando como <strong>' + dn(votarUser) + '</strong></span>';
+  h += '<button class="btn-logout" style="font-size:11px;padding:4px 10px;" onclick="trocarVotarIdentity()">Trocar</button>';
+  h += '</div>';
 
   h += '<div class="section-desc" style="font-size:13px;">De notas de 0 a 10 para cada jogador. Arraste o numero para cima/baixo. As notas serao usadas para equilibrar a divisao de times.</div>';
 
@@ -241,12 +298,13 @@ function initNotaGrid(containerId, jogadores, mediasMap) {
 // SALVAR NOTA / DESVOTO
 // ============================================================
 async function salvarNota(nome, novaNota) {
+  var avaliador = votarUser;
   var notaAnterior = notasLocais[nome];
   if (notaAnterior !== undefined && notaAnterior === novaNota) return;
 
   var { error: e } = await sb.from('notas_jogadores').upsert({
     grupo_id: grupoAtual.id,
-    avaliador: currentUser,
+    avaliador: avaliador,
     avaliado: nome,
     nota: novaNota,
     atualizado_em: new Date().toISOString()
@@ -256,7 +314,7 @@ async function salvarNota(nome, novaNota) {
 
   await sb.from('notas_jogadores_historico').insert({
     grupo_id: grupoAtual.id,
-    avaliador: currentUser,
+    avaliador: avaliador,
     avaliado: nome,
     nota_anterior: notaAnterior !== undefined ? notaAnterior : null,
     nota_nova: novaNota
@@ -265,24 +323,25 @@ async function salvarNota(nome, novaNota) {
   notasLocais[nome] = novaNota;
   updateNotaCounter();
   showToast(dn(nome) + ': nota ' + novaNota + ' \u2713');
-  logAsync(currentUser, 'NOTA', nome + ' = ' + novaNota);
+  logAsync(avaliador, 'NOTA', nome + ' = ' + novaNota);
 }
 
 async function salvarDesvoto(nome) {
+  var avaliador = votarUser;
   var notaAnterior = notasLocais[nome];
   if (notaAnterior === undefined) return;
 
   var { error: e } = await sb.from('notas_jogadores')
     .delete()
     .eq('grupo_id', grupoAtual.id)
-    .eq('avaliador', currentUser)
+    .eq('avaliador', avaliador)
     .eq('avaliado', nome);
 
   if (e) { showToast('Erro ao desvotar: ' + e.message, true); return; }
 
   await sb.from('notas_jogadores_historico').insert({
     grupo_id: grupoAtual.id,
-    avaliador: currentUser,
+    avaliador: avaliador,
     avaliado: nome,
     nota_anterior: notaAnterior,
     nota_nova: null
@@ -291,7 +350,7 @@ async function salvarDesvoto(nome) {
   delete notasLocais[nome];
   updateNotaCounter();
   showToast(dn(nome) + ': voto removido \u2715');
-  logAsync(currentUser, 'DESVOTO', nome);
+  logAsync(avaliador, 'DESVOTO', nome);
 }
 
 function updateNotaCounter() {
@@ -303,16 +362,10 @@ function updateNotaCounter() {
 
 // ============================================================
 // NOTAS DETALHADAS (ADM) - 2 TABELAS PIVOT + ORDENACAO
-// Tabela 1: Mensalistas | Tabela 2: Diaristas (avulsos)
-// Cada tabela: linhas = avaliados, colunas = avaliadores, ultima = media
-// Click no header ordena asc/desc
 // ============================================================
-
-// Estado de ordenacao por tabela
 var pivotSortState = {};
 
 function renderNotasDetalhadasAdm(todasNotas, mensais, avulsos) {
-  // Separar notas por tipo
   var notasMensais = todasNotas.filter(function(n) { return votarMensaisSet[n.avaliado]; });
   var notasAvulsos = todasNotas.filter(function(n) { return !votarMensaisSet[n.avaliado]; });
 
@@ -346,7 +399,6 @@ function buildPivotTable(tableId, title, notas) {
     notaMap[n.avaliado][n.avaliador] = n.nota;
   });
 
-  // Inicializar estado de ordenacao
   if (!pivotSortState[tableId]) {
     pivotSortState[tableId] = { col: null, dir: null };
   }
@@ -356,7 +408,6 @@ function buildPivotTable(tableId, title, notas) {
   h += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
   h += '<table class="log-table notas-pivot-table" id="' + tableId + '">';
 
-  // Header
   h += '<thead><tr><th class="pivot-th-fixed pivot-sortable" data-table="' + tableId + '" data-col="nome" onclick="sortPivotTable(\'' + tableId + '\',\'nome\')">Jogador ' + getSortArrow(tableId, 'nome') + '</th>';
   avaliadores.forEach(function(av) {
     var short = dn(av);
@@ -366,7 +417,6 @@ function buildPivotTable(tableId, title, notas) {
   h += '<th class="pivot-th-media pivot-sortable" data-table="' + tableId + '" data-col="media" onclick="sortPivotTable(\'' + tableId + '\',\'media\')">' + 'Media ' + getSortArrow(tableId, 'media') + '</th>';
   h += '</tr></thead>';
 
-  // Calcular dados para ordenacao
   var rows = avaliados.map(function(jogador) {
     var soma = 0, count = 0;
     var rowData = { nome: jogador, notas: {}, media: null };
@@ -379,7 +429,6 @@ function buildPivotTable(tableId, title, notas) {
     return rowData;
   });
 
-  // Aplicar ordenacao
   var st = pivotSortState[tableId];
   if (st.col && st.dir) {
     rows.sort(function(a, b) {
@@ -393,7 +442,6 @@ function buildPivotTable(tableId, title, notas) {
         var avKey = st.col.substring(3);
         va = a.notas[avKey]; vb = b.notas[avKey];
       }
-      // nulls sempre por ultimo
       if (va === null && vb === null) return 0;
       if (va === null) return 1;
       if (vb === null) return -1;
@@ -401,7 +449,6 @@ function buildPivotTable(tableId, title, notas) {
     });
   }
 
-  // Body
   h += '<tbody>';
   rows.forEach(function(row) {
     h += '<tr>';
@@ -424,7 +471,6 @@ function buildPivotTable(tableId, title, notas) {
 
   h += '</table></div></div>';
 
-  // Guardar dados para re-render
   window['_pivotData_' + tableId] = { notas: notas, title: title };
 
   return h;
@@ -442,7 +488,6 @@ function sortPivotTable(tableId, col) {
   if (!st) { pivotSortState[tableId] = { col: null, dir: null }; st = pivotSortState[tableId]; }
 
   if (st.col === col) {
-    // Ciclo: asc -> desc -> reset
     if (st.dir === 'asc') { st.dir = 'desc'; }
     else if (st.dir === 'desc') { st.col = null; st.dir = null; }
   } else {
@@ -450,14 +495,8 @@ function sortPivotTable(tableId, col) {
     st.dir = col === 'nome' ? 'asc' : 'desc';
   }
 
-  // Re-render a tabela especifica
   var data = window['_pivotData_' + tableId];
   if (!data) return;
-
-  // Separar avaliados em mensais/avulsos para reconstruir
-  var avaliadosSet = {};
-  data.notas.forEach(function(n) { avaliadosSet[n.avaliado] = true; });
-  var avaliados = Object.keys(avaliadosSet);
 
   var el = document.getElementById(tableId);
   if (!el) return;
