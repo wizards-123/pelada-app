@@ -1,6 +1,6 @@
 // ============================================================
 // home.js - Página inicial: lista de peladas + detalhe
-// Feature: ADM pode editar partidas finalizadas no detalhe
+// Feature: ADM pode editar partidas finalizadas + reabrir pelada
 // ============================================================
 
 var homeView = 'list';
@@ -91,7 +91,6 @@ async function loadPeladaDetalhe(p) {
   var el = $('homeContent');
   el.innerHTML = '<div class="skeleton"></div>';
 
-  // Atualizar peladaAtual para que o editSavePartida saiba redirecionar
   peladaAtual = p;
 
   var pId = p.id;
@@ -133,14 +132,15 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
   h += '<div class="pelada-detail-header">';
   h += '<div class="pelada-detail-title">' + peladaLabel(p) + '</div>';
   h += '<div class="pelada-detail-date">📅 ' + df + '</div>';
+  if (isAdm) {
+    h += '<button class="btn btn-secondary mt12" onclick="reabrirPeladaHome(\'' + p.id + '\')" style="border-color:var(--gold);color:var(--gold);width:auto;padding:8px 16px;font-size:13px;">🔓 Reabrir pelada</button>';
+  }
   h += '</div>';
 
-  // Times Sorteados
   if (p.times_sorteados && p.times_sorteados.length > 0) {
     h += renderTimesSorteadosHome(p.times_sorteados, mediasMap);
   }
 
-  // Partidas
   if (partidas.length > 0) {
     h += '<div class="card"><div class="card-title">⚽ Partidas</div>';
     partidas.forEach(function(pt, idx) {
@@ -159,7 +159,6 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
 
       h += '<div class="partida-detail-block' + (isLast ? '' : ' partida-detail-border') + '">';
 
-      // Cabeçalho da partida com botão editar
       h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
       h += '<span style="font-size:13px;font-weight:700;">Partida ' + pt.numero + '</span>';
       if (isAdm) {
@@ -205,7 +204,6 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
 
       h += '</div>';
 
-      // Zona de edição inline
       h += '<div id="editZone_' + pt.partida_id.replace(/[^a-zA-Z0-9_]/g, '_') + '"></div>';
 
       h += '</div>';
@@ -215,7 +213,6 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
     h += '<div class="card"><div class="card-title">⚽ Partidas</div><div class="text-muted">Nenhuma partida registrada.</div></div>';
   }
 
-  // Seleção da Pelada
   var selecao = calcSelecaoPelada(votos);
   h += renderCampoSelecao(selecao);
 
@@ -223,11 +220,27 @@ function renderPeladaDetalhe(p, partidas, gols, votos, mediasMap) {
 }
 
 // ============================================================
-// EDITAR PARTIDA A PARTIR DA HOME (redireciona para lógica compartilhada em aovivo.js)
+// REABRIR PELADA A PARTIR DA HOME (ADM)
+// ============================================================
+async function reabrirPeladaHome(peladaId) {
+  if (!isAdm) { showToast('Apenas ADM.', true); return; }
+  if (!confirm('Reabrir esta pelada? Ela voltará ao modo Ao Vivo e poderá registrar novas partidas.')) return;
+
+  var { error: e } = await sb.from('peladas').update({ status: 'EmAndamento' }).eq('id', peladaId).eq('grupo_id', grupoAtual.id);
+  if (e) { showToast('Erro ao reabrir: ' + e.message, true); return; }
+
+  var p = allPeladas.find(function(x) { return String(x.id) === String(peladaId); }) || homePeladaDetalhe;
+  if (p) { p.status = 'EmAndamento'; peladaAtual = p; }
+
+  showToast('🔓 Pelada reaberta!');
+  logAsync(currentUser, 'REABRIR_PELADA', peladaId);
+  navigateTo('AoVivo');
+}
+
+// ============================================================
+// EDITAR PARTIDA A PARTIR DA HOME
 // ============================================================
 async function editPartidaHome(partidaId) {
-  // Usa a mesma lógica de edição do aovivo.js
-  // O editSavePartida já verifica homeView === 'detail' para recarregar corretamente
   await editPartidaAoVivo(partidaId);
 }
 
