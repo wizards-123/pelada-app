@@ -1,80 +1,147 @@
 // ============================================================
-// login.js - Login, logout, navegação
+// login.js - Login direto, ADM destravável por senha, navegação
 // ============================================================
-async function initLogin() {
+
+// Entra direto no app (sem selecionar "quem você é")
+function initLogin() {
+  currentUser = null;      // identidade só é definida na Votação
+  isAdm = false;           // ADM começa travado; destrava via senha no app
+  isSuperAdmin = false;
+  votarUser = null;        // identidade da Votação (persiste na sessão)
+
   $('grupoScreen').style.display = 'none';
-  $('loginScreen').style.display = 'flex';
-  $('loginGrupoNome').textContent = grupoAtual.nome;
-  var { data: j } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
-  cachedJogadores = j ? j.map(function(r) { return r.nome; }) : [];
-  var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
-  allPeladas = p || [];
-  peladaAtual = allPeladas.length > 0 ? allPeladas[0] : null;
-  var sel = $('loginSelect');
-  sel.innerHTML = '<option value="">Selecione seu nome...</option>';
-  sa(cachedJogadores).forEach(function(n) {
-    var o = document.createElement('option');
-    o.value = n;
-    o.textContent = dn(n);
-    sel.appendChild(o);
-  });
-}
-function onLoginSelectChange() {
-  var v = $('loginSelect').value;
-  $('passwordGroup').style.display = (admNames.indexOf(v) > -1) ? 'block' : 'none';
-  $('loginError').style.display = 'none';
-}
-async function doLogin() {
-  var v = $('loginSelect').value;
-  if (!v) { showLoginError('Selecione.'); return; }
-  if (admNames.indexOf(v) > -1) {
-    var pw = $('admPassword').value;
-    var { data: ae } = await sb.from('admins').select('nome, senha, tipo').eq('grupo_id', grupoAtual.id).eq('nome', v).single();
-    if (!ae || ae.senha !== pw) { showLoginError('Senha incorreta.'); return; }
-    finalizeLogin(v, true, ae.tipo === 'Super');
-  } else {
-    finalizeLogin(v, false, false);
-  }
-}
-async function finalizeLogin(name, adm, sup) {
-  currentUser = name;
-  isAdm = adm;
-  isSuperAdmin = sup;
-  $('headerUserName').textContent = dn(name);
-  $('headerGrupoName').textContent = grupoAtual.nome;
   $('loginScreen').style.display = 'none';
   $('appScreen').style.display = 'block';
-  $('navAdm').style.display = adm ? 'flex' : 'none';
+
+  $('headerUserName').textContent = grupoAtual.nome;
+  $('headerGrupoName').textContent = grupoAtual.nome;
+
+  // Todas as abas visíveis (ADM aparece sempre; conteúdo é gated por senha)
+  $('navAdm').style.display = 'flex';
   $('navFinanceiro').style.display = 'flex';
-  logAsync(name, 'LOGIN', 'Entrou');
-  loadHome();
+
+  updateAdmLockUI();
+
+  logAsync('—', 'ENTRAR', 'Entrou no grupo');
+  navigateTo('Home');
 }
-function doLogout() {
-  if (currentUser) logAsync(currentUser, 'LOGOUT', 'Saiu');
-  if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
-  currentUser = null;
+
+// Atualiza rótulo/estado visual do lock de ADM (badge no header)
+function updateAdmLockUI() {
+  var badge = $('admLockBadge');
+  if (badge) {
+    badge.textContent = isAdm ? '🔓 ADM' : '🔒 ADM';
+    badge.style.color = isAdm ? 'var(--green)' : 'var(--text3)';
+    badge.style.borderColor = isAdm ? 'var(--green)' : 'var(--border)';
+  }
+}
+
+// ============================================================
+// DESTRAVAR ADM (modal de senha)
+// ============================================================
+function openAdmUnlock() {
+  if (isAdm) {
+    // Já destravado: oferecer travar de novo
+    if (confirm('ADM está destravado. Deseja travar novamente?')) {
+      lockAdm();
+    }
+    return;
+  }
+  $('admUnlockError').style.display = 'none';
+  $('admUnlockInput').value = '';
+  $('admUnlockModal').style.display = 'flex';
+  setTimeout(function() { $('admUnlockInput').focus(); }, 100);
+}
+
+function closeAdmUnlock() {
+  $('admUnlockModal').style.display = 'none';
+}
+
+async function submitAdmUnlock() {
+  var pw = $('admUnlockInput').value;
+  if (!pw) { showAdmUnlockError('Digite a senha.'); return; }
+
+  // Valida a senha contra qualquer ADM do grupo (senha por-grupo)
+  var { data: ads } = await sb.from('admins').select('nome, senha, tipo').eq('grupo_id', grupoAtual.id);
+  ads = ads || [];
+  var match = ads.find(function(a) { return a.senha === pw; });
+
+  if (!match) { showAdmUnlockError('Senha incorreta.'); return; }
+
+  isAdm = true;
+  isSuperAdmin = match.tipo === 'Super';
+  currentUser = match.nome; // logs de ADM passam a ter nome do admin
+
+  closeAdmUnlock();
+  updateAdmLockUI();
+  showToast('🔓 ADM destravado.');
+  logAsync(currentUser, 'ADM_UNLOCK', 'Destravou ADM');
+
+  // Recarrega a página atual para revelar recursos de ADM
+  refreshCurrentPage();
+}
+
+function lockAdm() {
   isAdm = false;
   isSuperAdmin = false;
-  $('appScreen').style.display = 'none';
-  $('admPassword').value = '';
-  $('loginSelect').value = '';
-  $('passwordGroup').style.display = 'none';
-  showGrupoScreen();
+  // currentUser volta a ser a identidade da Votação (se houver)
+  currentUser = votarUser || null;
+  updateAdmLockUI();
+  showToast('🔒 ADM travado.');
+  refreshCurrentPage();
 }
-function showLoginError(m) {
-  var e = $('loginError');
+
+function showAdmUnlockError(m) {
+  var e = $('admUnlockError');
   e.textContent = m;
   e.style.display = 'block';
 }
+
+// Descobre a página ativa e recarrega
+function refreshCurrentPage() {
+  var active = document.querySelector('.page.active');
+  if (!active) { loadHome(); return; }
+  var id = active.id.replace('page', '');
+  if (id === 'Home') loadHome();
+  else if (id === 'Votar') loadVotar();
+  else if (id === 'Resultados') loadResultados();
+  else if (id === 'Adm') loadAdm();
+  else if (id === 'AoVivo') loadAoVivo();
+  else if (id === 'Financeiro') loadFinanceiro();
+}
+
+function doLogout() {
+  logAsync('—', 'SAIR', 'Saiu');
+  if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+  currentUser = null;
+  votarUser = null;
+  isAdm = false;
+  isSuperAdmin = false;
+  $('appScreen').style.display = 'none';
+  showGrupoScreen();
+}
+
 function voltarParaGrupos() {
   $('loginScreen').style.display = 'none';
   showGrupoScreen();
 }
+
+// ============================================================
+// NAVEGAÇÃO
+// ============================================================
 function navigateTo(page) {
+  // Se for ADM e estiver travado, abre o modal de senha em vez de navegar
+  if (page === 'Adm' && !isAdm) {
+    openAdmUnlock();
+    return;
+  }
+
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   $('page' + page).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
-  $('nav' + page).classList.add('active');
+  var navBtn = $('nav' + page);
+  if (navBtn) navBtn.classList.add('active');
+
   if (page === 'Home') loadHome();
   else if (page === 'Votar') loadVotar();
   else if (page === 'Resultados') loadResultados();
