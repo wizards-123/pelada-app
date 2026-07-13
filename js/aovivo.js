@@ -1,16 +1,16 @@
 // ============================================================
 // aovivo.js - Ao Vivo, partidas, gols, realtime, substituições, sortear times
-// Feature: ADM pode editar partidas finalizadas
+// Feature: ADM pode editar partidas finalizadas + reabrir pelada
 // ============================================================
 
 var aoVivoPresentes = [];
 var teamPicks = {};
 var subPendente = null;
 var sorteioAtual = null;
-var editingPartidaId = null; // partida sendo editada
-var editTeamPicks = {};      // picks durante edição
-var editGols = [];           // gols carregados durante edição
-var editSubs = [];           // subs carregados durante edição
+var editingPartidaId = null;
+var editTeamPicks = {};
+var editGols = [];
+var editSubs = [];
 
 async function loadAoVivo() {
   var el = $('aoVivoContent');
@@ -20,10 +20,15 @@ async function loadAoVivo() {
   var { data: pr } = await sb.from('peladas').select('*').eq('id', peladaAtual.id).eq('grupo_id', grupoAtual.id).single();
   if (pr) peladaAtual = pr;
 
-  // Pelada encerrada/realizada
   if (peladaAtual.status === 'Realizada' || peladaAtual.status === 'Encerrada') {
     var { data: pts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).order('numero');
     var fn = (pts || []).filter(function(p) { return p.status === 'Finalizada'; });
+
+    var reabrirBtn = '';
+    if (isAdm) {
+      reabrirBtn = '<button class="btn btn-secondary mt12" onclick="reabrirPelada()" style="border-color:var(--gold);color:var(--gold);">🔓 Reabrir pelada</button>';
+    }
+
     if (fn.length > 0) {
       var rh = '<div class="card"><div class="card-title">📋 Partidas</div>';
       fn.forEach(function(p) {
@@ -37,19 +42,17 @@ async function loadAoVivo() {
         rh += '<div id="editZone_' + p.partida_id.replace(/[^a-zA-Z0-9_]/g, '_') + '"></div>';
       });
       rh += '</div>';
-      el.innerHTML = rh + '<div class="empty-state"><span class="emoji">✅</span>Encerrada.</div>';
+      el.innerHTML = rh + '<div class="empty-state"><span class="emoji">✅</span>Encerrada.</div>' + reabrirBtn;
     } else {
-      el.innerHTML = '<div class="empty-state"><span class="emoji">✅</span>Encerrada.</div>';
+      el.innerHTML = '<div class="empty-state"><span class="emoji">✅</span>Encerrada.</div>' + reabrirBtn;
     }
     if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
     return;
   }
 
-  // Presentes
   var { data: ps } = await sb.from('presenca').select('jogador').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
   aoVivoPresentes = (ps || []).map(function(r) { return r.jogador; });
 
-  // Partidas
   var { data: pts } = await sb.from('partidas').select('*').eq('pelada_id', peladaAtual.id).eq('grupo_id', grupoAtual.id).order('numero');
   var tp = pts || [];
   var at = tp.find(function(p) { return p.status === 'EmAndamento'; }) || null;
@@ -69,6 +72,23 @@ async function loadAoVivo() {
     await resolvePreSelectAndRender(tp, pn, preSelect);
     if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   }
+}
+
+// ============================================================
+// REABRIR PELADA (ADM)
+// ============================================================
+async function reabrirPelada() {
+  if (!isAdm) { showToast('Apenas ADM.', true); return; }
+  if (!peladaAtual) return;
+  if (!confirm('Reabrir esta pelada? Ela voltará ao modo Ao Vivo e poderá registrar novas partidas.')) return;
+
+  var { error: e } = await sb.from('peladas').update({ status: 'EmAndamento' }).eq('id', peladaAtual.id).eq('grupo_id', grupoAtual.id);
+  if (e) { showToast('Erro ao reabrir: ' + e.message, true); return; }
+
+  peladaAtual.status = 'EmAndamento';
+  showToast('🔓 Pelada reaberta!');
+  logAsync(currentUser, 'REABRIR_PELADA', peladaAtual.id);
+  loadAoVivo();
 }
 
 // ============================================================
@@ -536,7 +556,6 @@ function renderPartidaAtiva(part, gols, subs, tp) {
 
   var subPanel = '<div id="subPanel" style="display:none;"></div>';
 
-  // Resumo de partidas finalizadas anteriores (com botão editar para ADM)
   var resumo = '';
   if (tp && tp.length > 0) {
     var finPrev = tp.filter(function(p) { return p.status === 'Finalizada'; });
@@ -687,9 +706,8 @@ async function confirmarEncerrarPelada() {
 // ============================================================
 
 async function editPartidaAoVivo(partidaId) {
-  // Se já está editando essa, fecha
+  if (!isAdm) { showToast('Apenas ADM.', true); return; }
   if (editingPartidaId === partidaId) { closeEditPartida(); return; }
-  // Fecha qualquer edição aberta
   closeEditPartida();
 
   editingPartidaId = partidaId;
@@ -698,7 +716,6 @@ async function editPartidaAoVivo(partidaId) {
   if (!zone) return;
   zone.innerHTML = '<div style="padding:12px;text-align:center;"><div class="loader"></div></div>';
 
-  // Carregar dados da partida
   var results = await Promise.all([
     sb.from('partidas').select('*').eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).single(),
     sb.from('gols').select('*').eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).order('timestamp'),
@@ -713,7 +730,6 @@ async function editPartidaAoVivo(partidaId) {
 
   if (!partida) { zone.innerHTML = '<div class="text-muted" style="padding:12px;">Partida não encontrada.</div>'; return; }
 
-  // Montar editTeamPicks a partir dos times atuais
   editTeamPicks = {};
   (partida.time_a || []).forEach(function(n) { if (n) editTeamPicks[n.trim()] = 'A'; });
   (partida.time_b || []).forEach(function(n) { if (n) editTeamPicks[n.trim()] = 'B'; });
@@ -726,7 +742,6 @@ function renderEditPartida(zone, partida, presentes) {
   var h = '<div class="edit-partida-panel">';
   h += '<div class="edit-partida-header">✏️ Editando Partida ' + partida.numero + '</div>';
 
-  // --- TIMES ---
   h += '<div class="edit-section-label">Times</div>';
   h += '<div class="team-pick-label">1º=🔵A, 2º=🟠B, 3º=remove</div>';
   h += '<div class="player-pool" id="editPlayerPool_' + safeId + '">';
@@ -743,13 +758,11 @@ function renderEditPartida(zone, partida, presentes) {
   for (var k in editTeamPicks) { if (editTeamPicks[k] === 'A') cA++; if (editTeamPicks[k] === 'B') cB++; }
   h += '<div class="team-counters mt8">🔵 A: <span id="editCountA_' + safeId + '">' + cA + '</span>/5 🟠 B: <span id="editCountB_' + safeId + '">' + cB + '</span>/5</div>';
 
-  // --- GOLS ---
   h += '<div class="edit-section-label" style="margin-top:14px;">Gols</div>';
   h += '<div id="editGolsList_' + safeId + '">';
   h += renderEditGolsList(safeId);
   h += '</div>';
 
-  // Botões de adicionar gol por jogador
   h += '<div class="edit-section-label" style="margin-top:10px;">Adicionar gol</div>';
   h += '<div class="edit-add-gol-section">';
   h += '<div class="edit-add-gol-team">';
@@ -778,7 +791,6 @@ function renderEditPartida(zone, partida, presentes) {
   h += '</div>';
   h += '</div>';
 
-  // --- SUBSTITUIÇÕES ---
   h += '<div class="edit-section-label" style="margin-top:14px;">Substituições</div>';
   h += '<div id="editSubsList_' + safeId + '">';
   h += renderEditSubsList(safeId);
@@ -786,7 +798,6 @@ function renderEditPartida(zone, partida, presentes) {
   h += '<button class="btn btn-secondary" onclick="editAddSubStart(\'' + partida.partida_id + '\')" style="font-size:12px;padding:6px 12px;margin-top:6px;">+ Adicionar substituição</button>';
   h += '<div id="editSubPanel_' + safeId + '" style="display:none;margin-top:8px;"></div>';
 
-  // --- AÇÕES ---
   h += '<div class="edit-actions">';
   h += '<button class="btn btn-primary" onclick="editSavePartida(\'' + partida.partida_id + '\')">💾 Salvar</button>';
   h += '<button class="btn btn-secondary" onclick="closeEditPartida()">Cancelar</button>';
@@ -858,7 +869,6 @@ async function editAddGol(partidaId, jogador, time, golContra) {
   if (e) { showToast(e.message, true); return; }
   await sb.rpc('recalcular_placar', { p_partida_id: partidaId });
 
-  // Recarregar gols
   var { data: gl } = await sb.from('gols').select('*').eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).order('timestamp');
   editGols = gl || [];
 
@@ -891,11 +901,9 @@ function editAddSubStart(partidaId) {
   var panel = $('editSubPanel_' + safeId);
   if (!panel) return;
 
-  // Jogadores nos times
   var inTeam = {};
   for (var k in editTeamPicks) { if (editTeamPicks[k]) inTeam[k] = editTeamPicks[k]; }
 
-  // Jogadores ativos (não saíram)
   var saiuMap = {};
   editSubs.forEach(function(s) { saiuMap[s.jogador_saiu] = true; });
 
@@ -909,7 +917,6 @@ function editAddSubStart(partidaId) {
   var h = '<div class="card" style="border-color:var(--gold);padding:12px;">';
   h += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">Nova substituição</div>';
 
-  // Step 1: selecionar quem sai
   h += '<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Quem sai?</div>';
   h += '<div class="selecao-container">';
   sa(ativosA).forEach(function(n) {
@@ -931,11 +938,9 @@ function editSubSelectSaiu(partidaId, jogadorSaiu, time) {
   var panel = $('editSubPanel_' + safeId);
   if (!panel) return;
 
-  // Presentes que não estão em nenhum time
   var inTeam = {};
   for (var k in editTeamPicks) { if (editTeamPicks[k]) inTeam[k] = true; }
 
-  // Pegar presentes da pelada (todos que estão no pool)
   var poolChips = document.querySelectorAll('#editPlayerPool_' + safeId + ' .pool-chip');
   var todosPresentes = [];
   poolChips.forEach(function(c) { todosPresentes.push(c.getAttribute('data-player')); });
@@ -971,7 +976,6 @@ async function editSubConfirm(partidaId, jogadorSaiu, jogadorEntrou, time) {
   if (e) { showToast(e.message, true); return; }
   await addSubToTeam(partidaId, time, jogadorEntrou);
 
-  // Recarregar subs
   var { data: sbs } = await sb.from('substituicoes').select('*').eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).order('criado_em');
   editSubs = sbs || [];
 
@@ -1013,14 +1017,12 @@ async function editSavePartida(partidaId) {
     if (editTeamPicks[k] === 'B') tB.push(k);
   }
 
-  // Atualizar times
   var { error: e } = await sb.from('partidas').update({
     time_a: tA, time_b: tB
   }).eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id);
 
   if (e) { showToast('Erro ao salvar times: ' + e.message, true); return; }
 
-  // Recalcular placar e vencedor
   await sb.rpc('recalcular_placar', { p_partida_id: partidaId });
 
   var { data: p } = await sb.from('partidas').select('placar_a, placar_b').eq('partida_id', partidaId).eq('grupo_id', grupoAtual.id).single();
@@ -1033,7 +1035,6 @@ async function editSavePartida(partidaId) {
   logAsync(currentUser, 'EDIT_PARTIDA', partidaId);
   closeEditPartida();
 
-  // Recarregar a página atual
   if (homeView === 'detail' && homePeladaDetalhe) {
     loadPeladaDetalhe(homePeladaDetalhe);
   } else {
