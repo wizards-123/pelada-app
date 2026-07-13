@@ -25,7 +25,6 @@
   .login-card select,.login-card input{width:100%;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:16px;font-family:inherit;appearance:none;-webkit-appearance:none;outline:none;margin-bottom:16px}
   .login-card select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;padding-right:40px}
   .login-card select:focus,.login-card input:focus{border-color:var(--green)}
-  #passwordGroup{display:none}
   .btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-family:inherit;font-weight:600;cursor:pointer;transition:all .2s}
   .btn-primary{background:var(--green);color:#000}.btn-primary:active{background:var(--green2);transform:scale(0.98)}
   .btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border)}.btn-secondary:active{background:var(--border)}
@@ -37,6 +36,7 @@
   .app-header-user{font-size:12px;color:var(--text2)}.app-header-user span{color:var(--text);font-weight:500}
   .app-header-grupo{font-size:11px;color:var(--text3);margin-top:1px}
   .btn-logout{background:none;border:1px solid var(--border);color:var(--text2);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+  .adm-lock-badge{background:none;border:1px solid var(--border);color:var(--text3);padding:6px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
   .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(16,24,40,0.95);backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:8px 0 max(8px,env(safe-area-inset-bottom))}
   .nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--text3);cursor:pointer;padding:6px 8px;border:none;background:none;font-family:inherit;transition:color .2s}
   .nav-item.active{color:var(--green)}.nav-item svg{width:20px;height:20px}.nav-item.active svg{filter:drop-shadow(0 0 6px rgba(34,197,94,0.4))}
@@ -94,6 +94,16 @@
   .grupo-card-nome{font-size:16px;font-weight:600;color:var(--text)}.grupo-card-id{font-size:12px;color:var(--text3);background:var(--bg2);padding:3px 8px;border-radius:6px}
   .grupo-form-input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;font-family:inherit;outline:none;margin-bottom:10px}.grupo-form-input:focus{border-color:var(--green)}.grupo-form-input::placeholder{color:var(--text3)}
   .grupo-divider{margin-top:20px;border-top:1px solid var(--border);padding-top:16px}
+
+  /* ===== MODAL DE SENHA ADM ===== */
+  .adm-modal-overlay{display:none;position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:24px}
+  .adm-modal-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:340px}
+  .adm-modal-title{font-family:'Outfit',sans-serif;font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .adm-modal-sub{font-size:13px;color:var(--text2);margin-bottom:16px}
+  .adm-modal-input{width:100%;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:16px;font-family:inherit;outline:none;margin-bottom:14px}
+  .adm-modal-input:focus{border-color:var(--green)}
+  .adm-modal-actions{display:flex;gap:8px}
+  .adm-modal-actions .btn{flex:1;font-size:14px;padding:12px}
 
   /* ===== PELADA FILTER DROPDOWN ===== */
   .pelada-filter-wrap{position:relative;margin-bottom:16px}
@@ -178,15 +188,15 @@
   html.light .campo-svg{box-shadow:0 4px 20px rgba(0,0,0,0.1)}
   .campo-player{fill:rgba(255,255,255,0.93);stroke:rgba(255,255,255,0.5);stroke-width:1.5}
   .campo-player-text{font-family:'DM Sans',sans-serif;font-size:9.5px;font-weight:600;fill:#1a1a1a}
-  
-    /* ===== VOTAÇÃO: SELF-CHIP + ROLE-CHIP ===== */
+
+  /* ===== VOTAÇÃO: SELF-CHIP + ROLE-CHIP ===== */
   .chip.self-chip{opacity:0.35;pointer-events:none;border-style:dashed}
   .role-chip{font-size:12px;padding:6px 12px}
   .role-chip.selected{font-weight:600}
   .goal-btn-sub{background:var(--purpleGlow);color:var(--purple)}
   .goal-btn-sub:active{background:var(--purple);color:#fff}
-  
-/* ===== NOTAS: CAROUSEL GRID 2 COLUNAS ===== */
+
+  /* ===== NOTAS: CAROUSEL GRID 2 COLUNAS ===== */
   .nota-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px}
   .nota-cell{display:flex;align-items:center;gap:4px;padding:5px 0;border-bottom:1px solid rgba(36,48,73,0.3)}
   .nota-cell:nth-last-child(-n+2){border-bottom:none}
@@ -216,7 +226,7 @@
   .pivot-td-media{font-weight:700;background:var(--bg2);font-variant-numeric:tabular-nums}
   html.light .notas-pivot-table th,html.light .notas-pivot-table td{border-color:rgba(209,217,230,0.5)}
   html.light .pivot-th-fixed,html.light .pivot-td-nome{background:var(--card)}
-  
+
   /* ===== SORTEIO DE TIMES ===== */
   .sorteio-times-grid{display:flex;flex-direction:column;gap:12px}
   .sorteio-time-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
@@ -233,25 +243,10 @@
   html.light .sorteio-actions{border-top-color:rgba(209,217,230,0.5)}
 
   /* Pivot sortable headers */
-  .pivot-sortable {
-    cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-    white-space: nowrap;
-  }
-  .pivot-sortable:hover {
-    background: var(--card-hover, rgba(255,255,255,0.05));
-  }
-  .pivot-sort-arrow {
-    font-size: 10px;
-    opacity: 0.3;
-    margin-left: 2px;
-  }
-  .pivot-sort-arrow.active {
-    opacity: 1;
-    color: var(--green);
-  }
-
+  .pivot-sortable{cursor:pointer;user-select:none;-webkit-user-select:none;white-space:nowrap}
+  .pivot-sortable:hover{background:var(--card-hover,rgba(255,255,255,0.05))}
+  .pivot-sort-arrow{font-size:10px;opacity:0.3;margin-left:2px}
+  .pivot-sort-arrow.active{opacity:1;color:var(--green)}
 
   /* ===== EDITAR PARTIDA (ADM) ===== */
   .btn-edit-partida{background:none;border:1px solid var(--border);color:var(--text2);font-size:12px;padding:3px 8px;border-radius:6px;cursor:pointer;transition:all .2s;flex-shrink:0;font-family:inherit}
@@ -264,11 +259,6 @@
   .edit-gol-player-row{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:3px 0}
   .edit-actions{display:flex;gap:8px;margin-top:16px}
   .edit-actions .btn{flex:1;font-size:13px;padding:10px}
-  
-
-
-
-
 
   /* ===== EVOLUÇÃO CHART ===== */
   .evo-subtabs{display:flex;gap:4px;margin-bottom:16px;background:var(--bg2);padding:3px;border-radius:10px}
@@ -296,7 +286,6 @@
   .evo-chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .evo-chip-name{max-width:80px;overflow:hidden;text-overflow:ellipsis}
   .evo-chip-pts{font-weight:700;font-variant-numeric:tabular-nums;color:var(--chip-color,var(--text3));font-size:11px}
-
 </style>
 </head>
 <body>
@@ -333,16 +322,23 @@
   <div class="login-logo">⚽ Pelada</div>
   <div class="login-sub" id="loginGrupoNome"></div>
   <div class="login-card">
-    <label>Quem é você?</label>
-    <select id="loginSelect" onchange="onLoginSelectChange()"><option value="">Selecione seu nome...</option></select>
-    <div id="passwordGroup"><label>Senha do ADM</label><input type="password" id="admPassword" placeholder="Digite a senha..."></div>
     <div id="loginError" class="login-error"></div>
-    <button class="btn btn-primary" onclick="doLogin()" style="margin-bottom:10px;">Entrar</button>
     <button class="btn btn-secondary" onclick="voltarParaGrupos()" style="font-size:13px;">← Trocar de pelada</button>
   </div>
 </div>
 <div id="appScreen">
-  <div class="app-header"><div><div class="app-header-title">⚽ Pelada</div><div class="app-header-user">Logado: <span id="headerUserName"></span></div><div class="app-header-grupo" id="headerGrupoName"></div></div><div class="header-actions"><button class="theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button><button class="btn-logout" onclick="doLogout()">Sair</button></div></div>
+  <div class="app-header">
+    <div>
+      <div class="app-header-title">⚽ Pelada</div>
+      <div class="app-header-grupo" id="headerGrupoName"></div>
+      <span id="headerUserName" style="display:none;"></span>
+    </div>
+    <div class="header-actions">
+      <button class="adm-lock-badge" id="admLockBadge" onclick="openAdmUnlock()">🔒 ADM</button>
+      <button class="theme-toggle theme-toggle-btn" onclick="toggleTheme()">🌙</button>
+      <button class="btn-logout" onclick="doLogout()">Sair</button>
+    </div>
+  </div>
   <div id="pageHome" class="page active"><div class="section-title">🏠 Início</div><div id="homeContent"><div class="skeleton"></div></div></div>
   <div id="pageVotar" class="page"><div class="section-title">🗳️ Votação</div><div id="votarContent"></div></div>
   <div id="pageResultados" class="page"><div class="section-title">🏆 Resultados</div>
@@ -359,8 +355,20 @@
     <button class="nav-item" onclick="navigateTo('AoVivo')" id="navAoVivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Ao Vivo</button>
     <button class="nav-item" onclick="navigateTo('Votar')" id="navVotar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>Votar</button>
     <button class="nav-item" onclick="navigateTo('Resultados')" id="navResultados"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Ranking</button>
-    <button class="nav-item" onclick="navigateTo('Financeiro')" id="navFinanceiro" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Financeiro</button>
-    <button class="nav-item" onclick="navigateTo('Adm')" id="navAdm" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>ADM</button>
+    <button class="nav-item" onclick="navigateTo('Financeiro')" id="navFinanceiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Financeiro</button>
+    <button class="nav-item" onclick="navigateTo('Adm')" id="navAdm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>ADM</button>
+  </div>
+</div>
+<div id="admUnlockModal" class="adm-modal-overlay">
+  <div class="adm-modal-card">
+    <div class="adm-modal-title">🔒 Área do ADM</div>
+    <div class="adm-modal-sub">Digite a senha de administrador para desbloquear.</div>
+    <input type="password" id="admUnlockInput" class="adm-modal-input" placeholder="Senha do ADM" onkeydown="if(event.key==='Enter')submitAdmUnlock()">
+    <div id="admUnlockError" class="login-error"></div>
+    <div class="adm-modal-actions">
+      <button class="btn btn-secondary" onclick="closeAdmUnlock()">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitAdmUnlock()">Desbloquear</button>
+    </div>
   </div>
 </div>
 <div id="toast" class="toast"></div>
