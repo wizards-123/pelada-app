@@ -10,6 +10,7 @@ window.addEventListener('load', async function() {
 async function showGrupoScreen() {
   grupoAtual = null;
   currentUser = null;
+  votarUser = null;
   isAdm = false;
   isSuperAdmin = false;
   admNames = [];
@@ -45,36 +46,48 @@ async function showGrupoScreen() {
 
 var grupoSelecionadoId = null;
 
+// Carrega dados auxiliares do grupo (admNames p/ helper dn) e entra no app
+async function entrarNoGrupo(g) {
+  grupoAtual = g;
+  admName = g.admin_name;
+  admPassword = g.admin_password;
+  superAdminName = g.admin_name;
+
+  var { data: ad } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id);
+  if (ad && ad.length > 0) {
+    admNames = ad.map(function(a) { return a.nome; });
+    var se = ad.find(function(a) { return a.tipo === 'Super'; });
+    if (se) superAdminName = se.nome;
+  } else {
+    admNames = [g.admin_name];
+    superAdminName = g.admin_name;
+  }
+
+  // Carrega peladas para o estado inicial
+  var { data: p } = await sb.from('peladas').select('*').eq('grupo_id', grupoAtual.id).order('criado_em', { ascending: false });
+  allPeladas = p || [];
+  peladaAtual = allPeladas.length > 0 ? allPeladas[0] : null;
+
+  var { data: j } = await sb.from('jogadores').select('nome').eq('grupo_id', grupoAtual.id).order('nome');
+  cachedJogadores = j ? j.map(function(r) { return r.nome; }) : [];
+
+  initLogin();
+}
+
 async function selecionarGrupo(gid) {
   grupoSelecionadoId = gid;
   $('grupoError').style.display = 'none';
 
-  // Buscar grupo para checar se tem senha
   var { data: g, error: e } = await sb.from('grupos').select('*').eq('id', gid).single();
   if (e || !g) { showGrupoError('Grupo não encontrado.'); return; }
 
-  // Se não tem senha, entrar direto
+  // Se não tem senha, entra direto no app
   if (g.tem_senha === false) {
-    grupoAtual = g;
-    admName = g.admin_name;
-    admPassword = g.admin_password;
-    superAdminName = g.admin_name;
-
-    var { data: ad } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id);
-    if (ad && ad.length > 0) {
-      admNames = ad.map(function(a) { return a.nome; });
-      var se = ad.find(function(a) { return a.tipo === 'Super'; });
-      if (se) superAdminName = se.nome;
-    } else {
-      admNames = [g.admin_name];
-      superAdminName = g.admin_name;
-    }
-
-    initLogin();
+    entrarNoGrupo(g);
     return;
   }
 
-  // Tem senha: mostrar campo de senha
+  // Tem senha: mostrar campo de senha do grupo
   $('grupoSenhaInput').value = '';
   $('grupoList').style.display = 'none';
   $('grupoDivider').style.display = 'none';
@@ -100,23 +113,8 @@ async function validarSenhaGrupo() {
   if (e || !g) { showGrupoError('Grupo não encontrado.'); return; }
   if (s !== g.senha_acesso) { showGrupoError('Senha incorreta.'); return; }
 
-  grupoAtual = g;
-  admName = g.admin_name;
-  admPassword = g.admin_password;
-  superAdminName = g.admin_name;
-
-  var { data: ad } = await sb.from('admins').select('nome, tipo').eq('grupo_id', grupoAtual.id);
-  if (ad && ad.length > 0) {
-    admNames = ad.map(function(a) { return a.nome; });
-    var se = ad.find(function(a) { return a.tipo === 'Super'; });
-    if (se) superAdminName = se.nome;
-  } else {
-    admNames = [g.admin_name];
-    superAdminName = g.admin_name;
-  }
-
   $('grupoSenhaSection').style.display = 'none';
-  initLogin();
+  entrarNoGrupo(g);
 }
 
 function toggleCriarGrupo() {
