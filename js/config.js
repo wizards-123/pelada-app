@@ -7,6 +7,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // --- Estado Global ---
 var grupoAtual = null;
 var currentUser = null;
+var votarUser = null;
 var isAdm = false;
 var isSuperAdmin = false;
 var peladaAtual = null;
@@ -42,7 +43,7 @@ function showToast(m, err) {
   setTimeout(function() { e.classList.remove('show'); }, 3000);
 }
 function logAsync(u, a, d) {
-  sb.from('logs').insert({ usuario: u, acao: a, detalhes: d || '', grupo_id: grupoAtual.id }).then();
+  sb.from('logs').insert({ usuario: u || '—', acao: a, detalhes: d || '', grupo_id: grupoAtual.id }).then();
 }
 function peladaLabel(p) {
   if (!p) return '';
