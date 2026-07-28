@@ -135,6 +135,7 @@ async function loadAdmPelada() {
     h += '<div class="card"><div class="card-title">📋 Gerenciar</div>';
     h += '<select class="vote-select mb16" id="admPeladaSelect" onchange="onAdmPeladaSelectChange()">' + po + '</select>';
     h += '<div id="admPeladaRename"></div>';
+    h += '<div id="admPeladaRanking"></div>';
     h += '<div id="admPeladaActions"></div></div>';
     h += '<div class="card"><div class="card-title">👥 Presença</div><div id="admPresencaList"></div><button class="btn btn-primary mt12" onclick="salvarPresenca()">Salvar</button></div>';
   }
@@ -161,11 +162,12 @@ function renderPeladasArquivadas(ativas, inativas) {
     var isAtiva = p.ativa !== false;
     var df = p.data;
     try { df = new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR'); } catch(e) {}
+    var rkTag = (p.ranking_id === null || p.ranking_id === undefined) ? '' : ' · R' + p.ranking_id;
 
     h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(36,48,73,0.3);">';
     h += '<div style="flex:1;min-width:0;">';
     h += '<div style="font-size:13px;font-weight:500;' + (isAtiva ? 'color:var(--text);' : 'color:var(--text3);') + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + peladaLabel(p) + '</div>';
-    h += '<div style="font-size:11px;color:var(--text3);">' + df + ' · ' + p.status + '</div>';
+    h += '<div style="font-size:11px;color:var(--text3);">' + df + ' · ' + p.status + rkTag + '</div>';
     h += '</div>';
 
     // Toggle
@@ -208,6 +210,9 @@ async function loadAdmPeladaDetails(pid) {
       '</div>';
   }
 
+  // --- Seletor de ranking ---
+  renderPeladaRankingControl(pid, pel);
+
   var { data: vt } = await sb.from('votos').select('votante').eq('pelada_id', pid).eq('grupo_id', grupoAtual.id);
   var uq = {};
   (vt || []).forEach(function(v) { uq[v.votante] = true; });
@@ -237,6 +242,70 @@ async function loadAdmPeladaDetails(pid) {
     lh += '</div>';
     le.innerHTML = lh;
   }
+}
+
+// ============================================================
+// SELETOR DE RANKING POR PELADA
+// Grava peladas.ranking_id. "Sem ranking" grava NULL.
+// Rankings existentes viram botões; campo numérico cria novos.
+// ============================================================
+function renderPeladaRankingControl(pid, pel) {
+  var el = $('admPeladaRanking');
+  if (!el) return;
+
+  // Coleta os rankings já existentes no grupo
+  var set = {};
+  allPeladas.forEach(function(p) {
+    if (p.ranking_id !== null && p.ranking_id !== undefined) set[p.ranking_id] = true;
+  });
+  var nums = Object.keys(set).map(function(k) { return Number(k); }).sort(function(a, b) { return a - b; });
+
+  var atual = (pel.ranking_id === null || pel.ranking_id === undefined) ? null : Number(pel.ranking_id);
+
+  var h = '<div style="margin-bottom:16px;">';
+  h += '<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">🏆 Ranking desta pelada</div>';
+  h += '<div class="ranking-macro-row">';
+  h += '<button class="ranking-macro-btn' + (atual === null ? ' rmf-on' : '') + '" onclick="setPeladaRanking(\'' + pid + '\',null)">Sem ranking</button>';
+  nums.forEach(function(n) {
+    h += '<button class="ranking-macro-btn' + (atual === n ? ' rmf-on' : '') + '" onclick="setPeladaRanking(\'' + pid + '\',' + n + ')">R' + n + '</button>';
+  });
+  h += '</div>';
+  h += '<div class="input-row mt12">';
+  h += '<input type="number" min="1" id="novoRankingNum" placeholder="Novo ranking (nº)">';
+  h += '<button class="btn btn-secondary" style="width:auto;padding:10px 16px;font-size:13px;" onclick="setPeladaRankingNovo(\'' + pid + '\')">Aplicar</button>';
+  h += '</div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+async function setPeladaRanking(pid, rankingId) {
+  var valor = (rankingId === null) ? null : Number(rankingId);
+  var { error: e } = await sb.from('peladas').update({ ranking_id: valor }).eq('id', pid).eq('grupo_id', grupoAtual.id);
+  if (e) { showToast(e.message, true); return; }
+
+  showToast(valor === null ? 'Removida do ranking.' : 'Alocada no Ranking ' + valor + '.');
+  logAsync(currentUser, 'PELADA_RANKING', pid + ' → ' + (valor === null ? 'sem ranking' : 'R' + valor));
+
+  // Atualiza estado local
+  var found = allPeladas.find(function(p) { return p.id === pid; });
+  if (found) found.ranking_id = valor;
+  if (peladaAtual && peladaAtual.id === pid) peladaAtual.ranking_id = valor;
+
+  // Força o ranking a recarregar da próxima vez
+  resultPeladasSelecionadas = [];
+
+  // Redesenha o controle e a lista de visibilidade (que mostra a tag R#)
+  renderPeladaRankingControl(pid, found || peladaAtual);
+  loadAdmPelada();
+}
+
+function setPeladaRankingNovo(pid) {
+  var input = $('novoRankingNum');
+  if (!input) return;
+  var v = parseInt(input.value, 10);
+  if (isNaN(v) || v < 1) { showToast('Digite um número válido.', true); return; }
+  setPeladaRanking(pid, v);
 }
 
 function onAdmPeladaSelectChange() { loadAdmPeladaDetails($('admPeladaSelect').value); }
