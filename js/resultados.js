@@ -10,6 +10,9 @@ var resultCachedData = null;
 var resultDropdownOpen = false;
 var resultActiveSubTab = 'ranking';
 
+// --- Filtro macro por ranking ---
+var resultRankingFiltro = 'todos'; // 'todos' | 'sem' | número (1,2,3...)
+
 // --- Evolução chart state ---
 var evoHighlighted = {};
 var evoManualMode = false;
@@ -90,9 +93,58 @@ function renderVoteGateBlock() {
     '</div>';
 }
 
+// ============================================================
+// RANKINGS DISPONÍVEIS (detectados dinamicamente das peladas)
+// ============================================================
+function getRankingsDisponiveis() {
+  var set = {};
+  var temSem = false;
+  resultAllPeladas.forEach(function(p) {
+    if (p.ranking_id === null || p.ranking_id === undefined) temSem = true;
+    else set[p.ranking_id] = true;
+  });
+  var nums = Object.keys(set).map(function(k) { return Number(k); }).sort(function(a, b) { return a - b; });
+  return { nums: nums, temSem: temSem };
+}
+
+function peladasDoRanking(filtro) {
+  return resultAllPeladas.filter(function(p) {
+    if (filtro === 'todos') return true;
+    if (filtro === 'sem') return p.ranking_id === null || p.ranking_id === undefined;
+    return Number(p.ranking_id) === Number(filtro);
+  }).map(function(p) { return p.id; });
+}
+
+function renderRankingMacroFilter() {
+  var disp = getRankingsDisponiveis();
+  var h = '<div class="ranking-macro-row">';
+  h += '<button class="ranking-macro-btn' + (resultRankingFiltro === 'todos' ? ' rmf-on' : '') + '" onclick="setRankingFiltro(\'todos\')">Todos</button>';
+  disp.nums.forEach(function(n) {
+    h += '<button class="ranking-macro-btn' + (String(resultRankingFiltro) === String(n) ? ' rmf-on' : '') + '" onclick="setRankingFiltro(' + n + ')">R' + n + '</button>';
+  });
+  if (disp.temSem) {
+    h += '<button class="ranking-macro-btn' + (resultRankingFiltro === 'sem' ? ' rmf-on' : '') + '" onclick="setRankingFiltro(\'sem\')">Sem ranking</button>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function setRankingFiltro(filtro) {
+  resultRankingFiltro = filtro;
+  resultPeladasSelecionadas = peladasDoRanking(filtro);
+  // Atualiza botões macro
+  var macroWrap = $('rankingMacroWrap');
+  if (macroWrap) macroWrap.innerHTML = renderRankingMacroFilter();
+  // Sincroniza checkboxes do dropdown fino
+  updatePeladaFilterUI();
+  refreshResultadosData();
+}
+
 function renderResultadosShell() {
   var el = $('resultadosSemana');
   el.style.display = 'block';
+
+  var macroHtml = '<div id="rankingMacroWrap">' + renderRankingMacroFilter() + '</div>';
 
   var ddHtml = '<div class="pelada-filter-wrap" id="peladaFilterWrap">';
   ddHtml += '<div class="pelada-filter-btn" id="peladaFilterBtn" onclick="togglePeladaDropdown()">';
@@ -115,7 +167,7 @@ function renderResultadosShell() {
   tabHtml += '<button class="evo-subtab' + (resultActiveSubTab === 'chart' ? ' active' : '') + '" onclick="switchResultSubTab(\'chart\')">📈 Evolução</button>';
   tabHtml += '</div>';
 
-  el.innerHTML = ddHtml + tabHtml + '<div id="resultTabRanking"></div><div id="resultTabChart" style="display:none;"></div>';
+  el.innerHTML = macroHtml + ddHtml + tabHtml + '<div id="resultTabRanking"></div><div id="resultTabChart" style="display:none;"></div>';
 
   if (resultActiveSubTab === 'chart') {
     $('resultTabRanking').style.display = 'none';
@@ -169,15 +221,39 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// Quando o usuário mexe manualmente no filtro fino, o macro deixa de refletir
+// um ranking específico, então volta para o estado neutro "todos" visualmente
+// apenas se a seleção não corresponder mais a nenhum ranking.
+function syncMacroComSelecao() {
+  var disp = getRankingsDisponiveis();
+  var candidatos = ['todos'];
+  disp.nums.forEach(function(n) { candidatos.push(n); });
+  if (disp.temSem) candidatos.push('sem');
+
+  var match = null;
+  for (var i = 0; i < candidatos.length; i++) {
+    var ids = peladasDoRanking(candidatos[i]);
+    if (ids.length === resultPeladasSelecionadas.length) {
+      var todos = ids.every(function(id) { return resultPeladasSelecionadas.indexOf(id) > -1; });
+      if (todos) { match = candidatos[i]; break; }
+    }
+  }
+  resultRankingFiltro = match !== null ? match : '';
+  var macroWrap = $('rankingMacroWrap');
+  if (macroWrap) macroWrap.innerHTML = renderRankingMacroFilter();
+}
+
 function peladaFilterSelectAll() {
   resultPeladasSelecionadas = resultAllPeladas.map(function(p) { return p.id; });
   updatePeladaFilterUI();
+  syncMacroComSelecao();
   refreshResultadosData();
 }
 
 function peladaFilterSelectNone() {
   resultPeladasSelecionadas = [];
   updatePeladaFilterUI();
+  syncMacroComSelecao();
   refreshResultadosData();
 }
 
@@ -190,6 +266,7 @@ function onPeladaFilterChange(cb) {
     if (idx > -1) resultPeladasSelecionadas.splice(idx, 1);
   }
   updatePeladaFilterLabel();
+  syncMacroComSelecao();
   refreshResultadosData();
 }
 
