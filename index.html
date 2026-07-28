@@ -286,6 +286,40 @@
   .evo-chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .evo-chip-name{max-width:80px;overflow:hidden;text-overflow:ellipsis}
   .evo-chip-pts{font-weight:700;font-variant-numeric:tabular-nums;color:var(--chip-color,var(--text3));font-size:11px}
+
+/* ============================================================
+   Filtro macro de ranking (Ranking page + ADM pelada)
+   Colar dentro da tag <style> do index.html
+   ============================================================ */
+.ranking-macro-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ranking-macro-btn {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.ranking-macro-btn:hover {
+  border-color: var(--green);
+  color: var(--text);
+}
+.ranking-macro-btn.rmf-on {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+  
 </style>
 </head>
 <body>
